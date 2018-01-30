@@ -109,6 +109,7 @@ struct OpenEphysPluginAppWizard   : public NewProjectWizard
         project.getConfigFlag ("JUCE_QUICKTIME") = Project::configFlagDisabled; // disabled because it interferes with RTAS build on PC
         project.shouldBuildVST().setValue (false);
         project.shouldBuildVST3().setValue (false);
+		project.shouldBuildOpenEphysPlugin().setValue (true);
 
         setExecutableNameForAllTargets (project, File::createLegalFileName (appTitle));
 
@@ -465,8 +466,8 @@ struct OpenEphysPluginAppWizard   : public NewProjectWizard
         return wasGeneratedSuccessfully;
     }
 
-    static constexpr const char* COMBOBOX_ID_PLUGIN_TYPE    = "pluginTypeComboBox";//    { "pluginTypeComboBox" };
-    static constexpr const char* COMBOBOX_ID_PROCESSOR_TYPE = "processorTypeComboBox";// { "processorTypeComboBox" };
+    const char* COMBOBOX_ID_PLUGIN_TYPE    = "pluginTypeComboBox";//    { "pluginTypeComboBox" };
+    const char* COMBOBOX_ID_PROCESSOR_TYPE = "processorTypeComboBox";// { "processorTypeComboBox" };
 
 
 private:

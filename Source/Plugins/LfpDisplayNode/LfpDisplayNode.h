@@ -21,14 +21,17 @@
 
 */
 
-#ifndef __LFPDISPLAYNODE_H_D969A379__
-#define __LFPDISPLAYNODE_H_D969A379__
+#ifndef __LFPDISPLAYNODE_H_Alpha__
+#define __LFPDISPLAYNODE_H_Alpha__
 
 #include <ProcessorHeaders.h>
 #include "LfpDisplayEditor.h"
 
+
 class DataViewport;
 
+namespace LfpViewer
+{
 
 /**
 
@@ -39,6 +42,7 @@ class DataViewport;
 
 */
 class LfpDisplayNode :  public GenericProcessor
+
 {
 public:
     LfpDisplayNode();
@@ -46,7 +50,7 @@ public:
 
     AudioProcessorEditor* createEditor() override;
 
-    void process (AudioSampleBuffer& buffer, MidiBuffer& midiMessages) override;
+    void process (AudioSampleBuffer& buffer) override;
 
     void setParameter (int parameterIndex, float newValue) override;
 
@@ -55,7 +59,7 @@ public:
     bool enable()   override;
     bool disable()  override;
 
-    void handleEvent (int, MidiMessage&, int) override;
+	void handleEvent (const EventChannel* eventInfo, const MidiMessage& event, int samplePosition = 0) override;
 
     AudioSampleBuffer* getDisplayBufferAddress() const { return displayBuffer; }
 
@@ -66,12 +70,13 @@ public:
 
 private:
     void initializeEventChannels();
+    void finalizeEventChannels();
 
     ScopedPointer<AudioSampleBuffer> displayBuffer;
 
     Array<int> displayBufferIndex;
-    Array<int> eventSourceNodes;
-    std::map<int, int> channelForEventSource;
+    Array<uint32> eventSourceNodes;
+    std::map<uint32, int> channelForEventSource;
 
     int numEventChannels;
 
@@ -81,17 +86,20 @@ private:
     AbstractFifo abstractFifo;
 
     int64 bufferTimestamp;
-    std::map<int, int> ttlState;
-    HeapBlock<float> arrayOfOnes;
+    std::map<uint32, uint64> ttlState;
+    float* arrayOfOnes;
     int totalSamples;
 
     bool resizeBuffer();
 
     CriticalSection displayMutex;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LfpDisplayNode);
+	uint32 getChannelSourceID(const EventChannel* event) const;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LfpDisplayNode);
+};
 };
 
 
 
-#endif  // __LFPDISPLAYNODE_H_D969A379__
+#endif  // __LFPDISPLAYNODE_H_Alpha__

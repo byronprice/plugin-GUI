@@ -78,9 +78,9 @@ public:
     void initFile(String basename);
     void startNewRecording(int recordingNumber, KWIKRecordingInfo* info);
     void stopRecording();
-    void writeEvent(int type, uint8 id, uint8 processor, void* data, uint64 timestamp);
+    void writeEvent(int type, uint8 id, uint8 processor, void* data, int64 timestamp);
   //  void addKwdFile(String filename);
-    void addEventType(String name, DataTypes type, String dataName);
+	void addEventType(String name, BaseDataType type, String dataName);
     String getFileName();
 
 protected:
@@ -95,7 +95,7 @@ private:
     OwnedArray<HDF5RecordingData> nodeID;
     OwnedArray<HDF5RecordingData> eventData;
     Array<String> eventNames;
-    Array<DataTypes> eventTypes;
+	Array<BaseDataType> eventTypes;
     Array<String> eventDataNames;
     int kwdIndex;
 
@@ -113,7 +113,7 @@ public:
     void stopRecording();
     void addChannelGroup(int nChannels);
     void resetChannels();
-    void writeSpike(int groupIndex, int nSamples, const uint16* data, uint64 timestamp);
+    void writeSpike(int groupIndex, int nSamples, const float* data, Array<float>& bitVolts, int64 timestamp);
     String getFileName();
 
 protected:

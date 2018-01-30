@@ -38,30 +38,26 @@
 			void openFiles(File rootFolder, int experimentNumber, int recordingNumber) override;
 			void closeFiles() override;
 			void writeData(int writeChannel, int realChannel, const float* buffer, int size) override;
-			void writeEvent(int eventType, const MidiMessage& event, int64 timestamp) override;
-			void registerSpikeSource(GenericProcessor* proc) override;
-			void addSpikeElectrode(int index,const  SpikeRecordInfo* elec) override;
-			void writeSpike(int electrodeIndex, const SpikeObject& spike, int64 timestamp) override;
+			void writeEvent(int eventIndex, const MidiMessage& event) override;
+			void addSpikeElectrode(int index,const  SpikeChannel* elec) override;
+			void writeSpike(int electrodeIndex, const SpikeEvent* spike) override;
+			void writeTimestampSyncText(uint16 sourceID, uint16 sourceIdx, int64 timestamp, float sourceSampleRate, String text) override;
 			void resetChannels() override;
 			void setParameter(EngineParameter& parameter) override;
 			
 			static RecordEngineManager* getEngineManager();
 			
 		private:
-			void resetChannels(bool resetSpikes);
-			int currentSpikeProc;
-			String currentSpikeProcName;
-			Array<NWBRecordingInfo> continuousInfo;
-			Array<NWBRecordingInfo> spikeInfo;
-
 			ScopedPointer<NWBFile> recordFile;
 			Array<int> datasetIndexes;
 			Array<int> writeChannelIndexes;
 
-			HeapBlock<float> scaledBuffer;
-			HeapBlock<int16> intBuffer;
+			Array<ContinuousGroup> continuousChannels;
+			Array<const EventChannel*> eventChannels;
+			Array<const SpikeChannel*> spikeChannels;
+
 			HeapBlock<double> tsBuffer;
-			int bufferSize;
+			size_t bufferSize;
 
 			String identifierText;
 			

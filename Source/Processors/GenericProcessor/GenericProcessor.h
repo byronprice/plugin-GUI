@@ -24,40 +24,52 @@
 #ifndef __GENERICPROCESSOR_H_1F469DAF__
 #define __GENERICPROCESSOR_H_1F469DAF__
 
-enum ChannelType
-{
-    HEADSTAGE_CHANNEL = 0
-    , AUX_CHANNEL = 1
-    , ADC_CHANNEL = 2
-    , EVENT_CHANNEL = 3
-    , ELECTRODE_CHANNEL = 4
-    , MESSAGE_CHANNEL = 5
-};
-
-//defines which events are writable to files
-#define isWritableEvent(ev) (((int)(ev) == GenericProcessor::TTL) || ((int)(ev) == GenericProcessor::MESSAGE) || ((int)(ev) == GenericProcessor::BINARY_MSG))
-
-#include "../../../JuceLibraryCode/JuceHeader.h"
+#include <JuceHeader.h>
 #include "../Editors/GenericEditor.h"
 #include "../Parameter/Parameter.h"
-#include "../Channel/Channel.h"
 #include "../../CoreServices.h"
 #include "../PluginManager/PluginClass.h"
 #include "../../Processors/Dsp/LinearSmoothedValueAtomic.h"
 #include "../../Processors/PluginManager/PluginIDs.h"
+#include "../Channel/InfoObjects.h"
+#include "../Events/Events.h"
 
 #include <time.h>
 #include <stdio.h>
 #include <map>
+#include <unordered_map>
 
 class EditorViewport;
 class DataViewport;
 class UIComponent;
 class GenericEditor;
 class Parameter;
-class Channel;
+
 
 using namespace Plugin;
+
+class ChannelCreationIndexes
+{
+public:
+	friend class DataChannel;
+	friend class EventChannel;
+	friend class SpikeChannel;
+	friend class GenericProcessor;
+private:
+	void clearChannelCreationCounts();
+	int dataChannelCount{ 0 };
+	std::unordered_map<DataChannel::DataChannelTypes, int, std::hash<int>> dataChannelTypeCount;
+	int eventChannelCount{ 0 };
+	std::unordered_map<EventChannel::EventChannelTypes, int, std::hash<int>> eventChannelTypeCount;
+	int spikeChannelCount{ 0 };
+	std::unordered_map<SpikeChannel::ElectrodeTypes, int, std::hash<int>> spikeChannelTypeCount;
+};
+
+
+namespace AccessClass
+{
+	class ExternalProcessorAccessor;
+};
 
 
 /**
@@ -76,7 +88,9 @@ using namespace Plugin;
 */
 class PLUGIN_API GenericProcessor   : public AudioProcessor
                                     , public PluginClass
+									, public ChannelCreationIndexes
 {
+	friend AccessClass::ExternalProcessorAccessor;
 public:
     /** Constructor (sets the processor's name). */
     GenericProcessor (const String& name_);
@@ -218,7 +232,7 @@ public:
         automatically calls process() in order to add the 'nSamples' variable to indicate
         the number of samples in the current buffer.
     */
-    virtual void process (AudioSampleBuffer& continuousBuffer, MidiBuffer& eventBuffer) = 0;
+    virtual void process (AudioSampleBuffer& continuousBuffer) = 0;
 
     /** Pointer to a processor's immediate source node.*/
     GenericProcessor* sourceNode;
@@ -227,34 +241,29 @@ public:
     GenericProcessor* destNode;
 
     /** Returns the sample rate for a processor (assumes the same rate for all channels).*/
-    virtual float getSampleRate() const;
+    virtual float getSampleRate(int subProcessorIdx = 0) const;
 
     /** Returns the default sample rate, in case a processor has no source (or is itself a source).*/
     virtual float getDefaultSampleRate() const;
 
-    /** Returns the number of inputs to a processor.*/
+    /** Returns the total number of inputs to a processor.*/
     virtual int getNumInputs() const;
 
-    /** Returns the number of outputs from a processor.*/
+    /** Returns the total number of outputs from a processor.*/
     virtual int getNumOutputs() const;
 
-    /** Returns the default number of headstage (neural data) outputs, in case a processor has no source (or is itself a source).*/
-    virtual int getNumHeadstageOutputs() const;
-
-    /** Returns the default number of ADC (typically 0-5V, or -5 to +5V) outputs. */
-    virtual int getNumAdcOutputs() const;
-
-    /** Returns the default number of auxiliary (e.g. accelerometer) outputs. */
-    virtual int getNumAuxOutputs() const;
-
-    /** Returns the default number of event channels. */
-    virtual int getNumEventChannels() const;
+	/** Returns the number of outputs from a specific processor.*/
+	virtual int getNumOutputs(int subProcessorIdx) const;
 
     /** Returns the default number of volts per bit, in case a processor is a source, of the processor gain otherwise. (assumes data comes from a 16bit source)*/
     virtual float getDefaultBitVolts() const;
 
+	/** Returns the default bitVolts value for a given subprocessor
+	@see getDefaultBitVolts */
+	virtual float getBitVolts(int subprocessorIdx = 0) const;
+
     /** Returns the bit volts for a given channel **/
-    virtual float getBitVolts (Channel* chan) const;
+    virtual float getBitVolts (const DataChannel* chan) const;
 
     /** Returns the next available channel (and increments the channel if the input is set to 'true'. */
     virtual int getNextChannel (bool t);
@@ -328,8 +337,12 @@ public:
     /** Returns true if a processor is ready to process data (e.g., all of its parameters are initialized, and its data source is connected).*/
     virtual bool isReady();
 
+	bool enableProcessor();
+
     /** Called immediately prior to the start of data acquisition, once all processors in the signal chain have indicated they are ready to process data.*/
     virtual bool enable();
+
+	bool disableProcessor();
 
     /** Called immediately after the end of data acquisition.*/
     virtual bool disable();
@@ -372,35 +385,6 @@ public:
 
     int nextAvailableChannel;
 
-    /** Can be called by processors that need to respond to incoming events. */
-    virtual int checkForEvents (MidiBuffer& mb);
-
-    /** Makes it easier for processors to add events to the MidiBuffer. */
-    virtual void addEvent (MidiBuffer& mb,
-                           uint8 type,
-                           int sampleNum,
-                           uint8 eventID = 0,
-                           uint8 eventChannel = 0,
-                           int numBytes = 0,
-                           uint8* data = 0,
-                           bool isTimestamp = false);
-
-    /** Makes it easier for processors to respond to incoming events, such as TTLs and spikes.
-
-    Called by checkForEvents(). */
-    virtual void handleEvent (int eventType, MidiMessage& event, int samplePosition = 0);
-
-    enum eventTypes
-    {
-        TIMESTAMP = 0,
-        BUFFER_SIZE = 1,
-        PARAMETER_CHANGE = 2,
-        TTL = 3,
-        SPIKE = 4,
-        MESSAGE = 5,
-        BINARY_MSG = 6
-    };
-
     /** Variable used to orchestrate saving the ProcessorGraph. */
     int saveOrder;
 
@@ -416,12 +400,6 @@ public:
     /** Pointer to the processor's editor. */
     ScopedPointer<GenericEditor> editor;
 
-    /** Array of Channel objects for all continuous channels. */
-    OwnedArray<Channel> channels;
-
-    /** Array of Channel objects for all event channels. */
-    OwnedArray<Channel> eventChannels;
-
     /** Returns total number of channels */
     int getTotalNumberOfChannels() const;
 
@@ -432,8 +410,6 @@ public:
 
         int numInputs;
         int numOutputs;
-
-        float sampleRate;
     };
 
     ProcessorSettings settings;
@@ -442,16 +418,10 @@ public:
     virtual void clearSettings();
 
     /** Default method for updating settings, called by every processor.*/
-    virtual void update();
+    void update();
 
-    /** Custom method for updating settings, called automatically by update().*/
-    virtual void updateSettings();
-
-    /** Toggles record ON for all channels */
+	/** Toggles record ON for all channels */
     void setAllChannelsToRecord();
-
-    /** Each processor has a unique integer ID that can be used to identify it.*/
-    int nodeId;
 
     /** An array of parameters that the user can modify.*/
     OwnedArray<Parameter> parameters;
@@ -471,10 +441,10 @@ public:
     virtual void saveCustomParametersToXml (XmlElement* parentElement);
 
     /** Saving generic settings for each channel (called by all processors). */
-    void saveChannelParametersToXml (XmlElement* parentElement, int channelNumber, bool isEventChannel = false);
+	void saveChannelParametersToXml(XmlElement* parentElement, int channelNumber, InfoObjectCommon::InfoObjectType channelType);
 
     /** Saving custom settings for each channel. */
-    virtual void saveCustomChannelParametersToXml (XmlElement* channelElement, int channelNumber, bool isEventChannel = false);
+	virtual void saveCustomChannelParametersToXml(XmlElement* channelElement, int channelNumber, InfoObjectCommon::InfoObjectType channelType);
 
     /** Load generic settings from XML (called by all processors). */
     void loadFromXml();
@@ -483,13 +453,10 @@ public:
     virtual void loadCustomParametersFromXml();
 
     /** Load generic parameters for each channel (called by all processors). */
-    void loadChannelParametersFromXml (XmlElement* channelElement, bool isEventChannel = false);
+    void loadChannelParametersFromXml (XmlElement* channelElement, InfoObjectCommon::InfoObjectType channelType);
 
     /** Load custom parameters for each channel. */
-    virtual void loadCustomChannelParametersFromXml (XmlElement* channelElement, bool isEventChannel = false);
-
-    /** handle messages from other processors */
-    virtual String interProcessorCommunication (String command);
+	virtual void loadCustomChannelParametersFromXml(XmlElement* channelElement, InfoObjectCommon::InfoObjectType channelType);
 
     /** Holds loaded parameters */
     XmlElement* parametersAsXml;
@@ -498,35 +465,157 @@ public:
     bool sendSampleCount;
 
     /** Used to get the number of samples in a given buffer, for a given channel. */
-    int getNumSamples (int channelNumber) const;
-
-    /** Used to get the number of samples in a given buffer, for a given source node. */
-    void setNumSamples (MidiBuffer&, int numSamples);
+    uint32 getNumSamples (int channelNumber) const;
 
     /** Used to get the timestamp for a given buffer, for a given channel. */
-    int64 getTimestamp (int channelNumber) const;
+    uint64 getTimestamp (int channelNumber) const;
 
-    /** Used to set the timestamp for a given buffer, for a given source node. */
-    void setTimestamp (MidiBuffer&, int64 timestamp);
+	/** Used to get the number of samples a specific source generates. 
+	Look by source ID and subprocessor index */
+	uint32 getNumSourceSamples(uint16 processorID, uint16 subProcessorIdx) const;
+
+	/** Used to get the number of samples a specific source generates.
+	Look by full source ID.
+	@see GenericProcessor::getProcessorFullId(uint16,uint16) */
+	uint32 getNumSourceSamples(uint32 fullSourceID) const;
+
+	/** Used to get the current timestamp of a specific source.
+	Look by source ID and subprocessor index */
+	uint64 getSourceTimestamp(uint16 processorID, uint16 subProcessorIdx) const;
+
+	/** Used to get the current timestamp of a specific source.
+	Look by full source ID.
+	@see GenericProcessor::getProcessorFullId(uint16,uint16) */
+	uint64 getSourceTimestamp(uint32 fullSourceID) const;
+
+	virtual int getNumSubProcessors() const;
+
+	int getDataChannelIndex(int channelIdx, int processorID, int subProcessorIdx = 0) const;
+
+	int getEventChannelIndex(int channelIdx, int processorID, int subProcessorIdx = 0) const;
+
+	int getEventChannelIndex(const Event*) const;
+
+	int getSpikeChannelIndex(int channelIdx, int processorID, int subProcessorIdx = 0) const;
+
+	int getSpikeChannelIndex(const SpikeEvent*) const;
+
+	const DataChannel* getDataChannel(int index) const;
+
+	const EventChannel* getEventChannel(int index) const;
+
+	const SpikeChannel* getSpikeChannel(int index) const;
+
+	const ConfigurationObject* getConfigurationObject(int index) const;
+
+	int getTotalDataChannels() const;
+	
+	int getTotalEventChannels() const;
+
+	int getTotalSpikeChannels() const;
+
+	int getTotalConfigurationObjects() const;
 
     PluginProcessorType getProcessorType() const;
 
-    std::map<uint8, int> numSamples;
-    std::map<uint8, int64> timestamps;
+	int64 getLastProcessedsoftwareTime() const;
 
+	static uint32 getProcessorFullId(uint16 processorId, uint16 subprocessorIdx);
+
+	class PLUGIN_API DefaultEventInfo
+	{
+	public:
+		DefaultEventInfo();
+		DefaultEventInfo(EventChannel::EventChannelTypes type, unsigned int nChans, unsigned int length, float SampleRate);
+		EventChannel::EventChannelTypes type{ EventChannel::INVALID };
+		unsigned int nChannels{ 0 };
+		unsigned int length{ 0 };
+		float sampleRate{ 44100 };
+		String name;
+		String description;
+		String identifier;
+	};
 
 protected:
+	/** Used to set the timestamp for a given buffer, for a given source node. */
+	void setTimestampAndSamples(uint64 timestamp, uint32 nSamples, int subProcessorIdx = 0);
+
+	/** Can be called by processors that need to respond to incoming events.
+	Set respondToSpikes to true if the processor should also search for spikes*/
+	virtual int checkForEvents(bool respondToSpikes = false);
+
+	/** Makes it easier for processors to respond to incoming events, such as TTLs.
+
+	Called by checkForEvents(). */
+	virtual void handleEvent(const EventChannel* eventInfo, const MidiMessage& event, int samplePosition = 0);
+
+	/** Makes it easier for processors to respond to incoming spikes.
+
+	Called by checkForEvents(). */
+	virtual void handleSpike(const SpikeChannel* spikeInfo, const MidiMessage& event, int samplePosition = 0);
+
+	/** Responds to TIMESTAMP_SYNC_TEXT system events, in case a processor needs to listen to them (useful for the record node) */
+	virtual void handleTimestampSyncTexts(const MidiMessage& event);
+
+	/** Returns the default number of datachannels outputs for a specific type and a specific subprocessor
+	Called by createDataChannels(). It is not needed to implement if createDataChannels() is overriden */
+	virtual int getDefaultNumDataOutputs(DataChannel::DataChannelTypes type, int subProcessorIdx = 0) const;
+
+	/** Returns info about the default events a specific subprocessor generates.
+	Called by createEventChannels(). It is not needed to implement if createEventChannels() is overriden */
+	virtual void getDefaultEventInfo(Array<DefaultEventInfo>& events, int subProcessorIdx = 0) const;
+
     /** Sets whether processor will have behaviour like Source, Sink, Splitter, Utility or Merge */
     void setProcessorType (PluginProcessorType processorType);
 
+	OwnedArray<DataChannel> dataChannelArray;
+	OwnedArray<EventChannel> eventChannelArray;
+	OwnedArray<SpikeChannel> spikeChannelArray;
+	OwnedArray<ConfigurationObject> configurationObjectArray;
+
+	void addEvent(int channelIndex, const Event* event, int sampleNum);
+	void addEvent(const EventChannel* channel, const Event* event, int sampleNum);
+
+	void addSpike(int channelIndex, const SpikeEvent* event, int sampleNum);
+	void addSpike(const SpikeChannel* channel, const SpikeEvent* event, int sampleNum);
+
+	/** Method to create the data channels pertaining to this processor, called automatically by update()*/
+	virtual void createDataChannels();
+
+	/** Method to create the event channels pertaining to this processor, called automatically by update()
+	Channels created by the default non-overloaded version of the method will be of 1 byte long and
+	only 1 channel. Those values can be changed in the updatesettings method or overloading this method
+	to add the channels with the proper characteristics */
+	virtual void createEventChannels();
+
+	/** Method to create the spike channels pertaining to this processor, called automatically by update() */
+	virtual void createSpikeChannels();
+
+	/** Method to create the configuration objects pertaining to this processor, called automatically by update() */
+	virtual void createConfigurationObjects();
+
+	/** Custom method for updating settings, called automatically by update() after creating the info objects.*/
+	virtual void updateSettings();
+
+	void updateChannelIndexes(bool updateNodeID = true);
 
 private:
+	std::map<uint32, uint32> numSamples;
+	std::map<uint32, int64> timestamps;
+
+	int64 m_lastProcessTime;
+
+	void createDataChannelsByType(DataChannel::DataChannelTypes type);
+
+	/** Each processor has a unique integer ID that can be used to identify it.*/
+	int nodeId;
+
     /** Automatically extracts the number of samples in the buffer, then
     calls the process(), where custom actions take place.*/
     virtual void processBlock (AudioSampleBuffer& buffer, MidiBuffer& midiMessages);
 
     /** Extracts sample counts and timestamps from the MidiBuffer. */
-    int processEventBuffer (MidiBuffer& buffer);
+    int processEventBuffer ();
 
     /** The type of the processor. */
     PluginProcessorType m_processorType;
@@ -542,9 +631,17 @@ private:
     static const String m_unusedNameString;
 
     bool m_isParamsWereLoaded;
-    bool m_isNeedsToSendTimestampMessage;
+	Array<bool> m_needsToSendTimestampMessages;
 
-    bool m_isTimestampSet;
+	MidiBuffer* m_currentMidiBuffer;
+
+	typedef std::map<uint16, int> ChannelIndexes;
+	typedef std::unordered_map<uint32, ChannelIndexes> ChannelIndexMap;
+	ChannelIndexMap dataChannelMap;
+	ChannelIndexMap eventChannelMap;
+	ChannelIndexMap spikeChannelMap;
+
+	
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GenericProcessor);
 };

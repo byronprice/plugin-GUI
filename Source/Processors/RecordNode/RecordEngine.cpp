@@ -42,25 +42,34 @@ void RecordEngine::resetChannels() {}
 
 void RecordEngine::registerProcessor (const GenericProcessor* processor) {}
 
-void RecordEngine::addChannel (int index, const Channel* chan) {}
+void RecordEngine::addDataChannel (int index, const DataChannel* chan) {}
+
+void RecordEngine::addEventChannel(int index, const EventChannel* chan) {}
+
+void RecordEngine::addSpikeElectrode(int index, const SpikeChannel* chan) {}
 
 void RecordEngine::startChannelBlock (bool lastBlock) {}
 
 void RecordEngine::endChannelBlock (bool lastBlock) {}
 
-Channel* RecordEngine::getChannel (int index) const
+const DataChannel* RecordEngine::getDataChannel (int index) const
 {
     return AccessClass::getProcessorGraph()->getRecordNode()->getDataChannel (index);
+}
+
+const EventChannel* RecordEngine::getEventChannel(int index) const
+{
+	return AccessClass::getProcessorGraph()->getRecordNode()->getEventChannel(index);
+}
+
+const SpikeChannel* RecordEngine::getSpikeChannel(int index) const
+{
+	return AccessClass::getProcessorGraph()->getRecordNode()->getSpikeChannel(index);
 }
 
 String RecordEngine::generateDateString() const
 {
     return AccessClass::getProcessorGraph()->getRecordNode()->generateDateString();
-}
-
-SpikeRecordInfo* RecordEngine::getSpikeElectrode (int index) const
-{
-    return AccessClass::getProcessorGraph()->getRecordNode()->getSpikeElectrode (index);
 }
 
 void RecordEngine::updateTimestamps (const Array<int64>& ts, int channel)
@@ -94,7 +103,17 @@ int RecordEngine::getNumRecordedChannels() const
     return channelMap.size();
 }
 
-void RecordEngine::registerSpikeSource (GenericProcessor* processor) {}
+int RecordEngine::getNumRecordedEvents() const
+{
+	return AccessClass::getProcessorGraph()->getRecordNode()->getTotalEventChannels();
+}
+
+int RecordEngine::getNumRecordedSpikes() const
+{
+	return AccessClass::getProcessorGraph()->getRecordNode()->getTotalSpikeChannels();
+}
+
+void RecordEngine::registerSpikeSource (const GenericProcessor* processor) {}
 
 int RecordEngine::getNumRecordedProcessors() const
 {
@@ -172,6 +191,10 @@ EngineParameter::EngineParameter (EngineParameter::EngineParameterType paramType
     {
         strParam.value = defaultValue;
     }
+	else if (paramType == MULTI)
+	{
+		multiParam.value = defaultValue;
+	}
 }
 
 
@@ -194,6 +217,9 @@ void EngineParameter::restoreDefault()
         case STR:
             strParam.value = def;
             break;
+
+		case MULTI:
+			multiParam.value = def;
 
         default:
             break;
@@ -315,6 +341,10 @@ void RecordEngineManager::saveParametersToXml (XmlElement* xml)
                 param->setAttribute ("value", parameters[i]->strParam.value);
                 break;
 
+			case EngineParameter::MULTI:
+				param->setAttribute("type", "multi");
+				param->setAttribute("value", parameters[i]->multiParam.value);
+
             default:
                 break;
         }
@@ -349,6 +379,11 @@ void RecordEngineManager::loadParametersFromXml (XmlElement* xml)
                 {
                     parameters[i]->strParam.value = xmlNode->getStringAttribute ("value");
                 }
+				else if ((xmlNode->getStringAttribute("type") == "multi")
+					&& (parameters[i]->type == EngineParameter::MULTI))
+				{
+					parameters[i]->multiParam.value = xmlNode->getIntAttribute("value");
+				}
             }
         }
     }

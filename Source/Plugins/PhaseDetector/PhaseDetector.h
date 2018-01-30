@@ -43,9 +43,9 @@ public:
     ~PhaseDetector();
 
     AudioProcessorEditor* createEditor() override;
-    bool hasEditor() const override { return false; }
+    bool hasEditor() const override { return true; }
 
-    void process (AudioSampleBuffer& buffer, MidiBuffer& midiMessages) override;
+    void process (AudioSampleBuffer& buffer) override;
 
     void setParameter (int parameterIndex, float newValue) override;
 
@@ -58,7 +58,7 @@ public:
 
 
 private:
-    void handleEvent (int eventType, MidiMessage& event, int sampleNum) override;
+    void handleEvent (const EventChannel* channelInfo, const MidiMessage& event, int sampleNum) override;
 
     void estimateFrequency();
 
@@ -96,7 +96,9 @@ private:
     bool risingNeg;
     bool fallingPos;
     bool fallingNeg;
+	int lastNumInputs;
 
+	Array<const EventChannel*> moduleEventChannels;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhaseDetector);
 };

@@ -27,7 +27,7 @@
 
 OriginalRecording::OriginalRecording() : separateFiles(false),
     recordingNumber(0), experimentNumber(0),  zeroBuffer(1, 50000),
-    eventFile(nullptr), messageFile(nullptr), lastProcId(0)
+	eventFile(nullptr), messageFile(nullptr), lastProcId(0), procIndex(0)
 {
     /*continuousDataIntegerBuffer = new int16[10000];
     continuousDataFloatBuffer = new float[10000];
@@ -67,7 +67,7 @@ String OriginalRecording::getEngineID() const
     return "OPENEPHYS";
 }
 
-void OriginalRecording::addSpikeElectrode(int index, const SpikeRecordInfo* elec)
+void OriginalRecording::addSpikeElectrode(int index, const SpikeChannel* elec)
 {
     spikeFileArray.add(nullptr);
 }
@@ -79,6 +79,8 @@ void OriginalRecording::resetChannels()
     blockIndex.clear();
     processorArray.clear();
     samplesSinceLastTimestamp.clear();
+	originalChannelIndexes.clear();
+	procIndex = 0;
 }
 
 void OriginalRecording::openFiles(File rootFolder, int experimentNumber, int recordingNumber)
@@ -89,25 +91,25 @@ void OriginalRecording::openFiles(File rootFolder, int experimentNumber, int rec
     processorArray.clear();
     lastProcId = 0;
 
-    openFile(rootFolder,nullptr);
+    openFile(rootFolder,getEventChannel(0), 0);
     openMessageFile(rootFolder);
 
 	int nChannels = getNumRecordedChannels();
 
 	for (int i = 0; i < nChannels; i++)
 	{
-		Channel* ch = getChannel(getRealChannel(i));
-		openFile(rootFolder, ch);
+		const DataChannel* ch = getDataChannel(getRealChannel(i));
+		openFile(rootFolder, ch, getRealChannel(i));
 		blockIndex.add(0);
 		samplesSinceLastTimestamp.add(0);
 	}
     for (int i = 0; i < spikeFileArray.size(); i++)
     {
-        openSpikeFile(rootFolder,getSpikeElectrode(i));
+        openSpikeFile(rootFolder,getSpikeChannel(i),i);
     }
 }
 
-void OriginalRecording::openFile(File rootFolder, Channel* ch)
+void OriginalRecording::openFile(File rootFolder, const InfoObjectCommon* ch, int channelIndex)
 {
     FILE* chFile;
     bool isEvent;
@@ -116,7 +118,7 @@ void OriginalRecording::openFile(File rootFolder, Channel* ch)
 
     recordPath = fullPath;
 
-    isEvent = (ch == nullptr) ? true : false;
+    isEvent = (ch->getInfoObjectType() == InfoObjectCommon::EVENT_CHANNEL) ? true : false;
     if (isEvent)
     {
         if (experimentNumber > 1)
@@ -126,7 +128,7 @@ void OriginalRecording::openFile(File rootFolder, Channel* ch)
     }
     else
     {
-        fileName += getFileName(ch);
+        fileName += getFileName(channelIndex);
     }
 
     fullPath += fileName;
@@ -167,31 +169,31 @@ void OriginalRecording::openFile(File rootFolder, Channel* ch)
     else
     {
         fileArray.add(chFile);
-        if (ch->nodeId != lastProcId)
+        if (ch->getCurrentNodeID() != lastProcId)
         {
-            lastProcId = ch->nodeId;
+            lastProcId = ch->getCurrentNodeID();
             ProcInfo* p = new ProcInfo();
-            p->id = ch->nodeId;
-            p->sampleRate = ch->sampleRate;
+            p->id = ch->getCurrentNodeID();
+            p->sampleRate = ch->getSampleRate();
             processorArray.add(p);
         }
         ChannelInfo* c = new ChannelInfo();
         c->filename = fileName;
-        c->name = ch->name;
+        c->name = ch->getName();
         c->startPos = ftell(chFile);
-        c->bitVolts = ch->bitVolts;
+        c->bitVolts = dynamic_cast<const DataChannel*>(ch)->getBitVolts();
         processorArray.getLast()->channels.add(c);
     }
     diskWriteLock.exit();
 
 }
 
-void OriginalRecording::openSpikeFile(File rootFolder, SpikeRecordInfo* elec)
+void OriginalRecording::openSpikeFile(File rootFolder, const SpikeChannel* elec, int channelIndex)
 {
 
     FILE* spFile;
     String fullPath(rootFolder.getFullPathName() + rootFolder.separatorString);
-    fullPath += elec->name.removeCharacters(" ");
+    fullPath += elec->getName().removeCharacters(" ");
 
     if (experimentNumber > 1)
     {
@@ -216,7 +218,7 @@ void OriginalRecording::openSpikeFile(File rootFolder, SpikeRecordInfo* elec)
         fwrite(header.toUTF8(), 1, header.getNumBytesAsUTF8(), spFile);
     }
     diskWriteLock.exit();
-    spikeFileArray.set(elec->recordIndex,spFile);
+    spikeFileArray.set(channelIndex,spFile);
 
 }
 
@@ -251,16 +253,17 @@ void OriginalRecording::openMessageFile(File rootFolder)
 
 }
 
-String OriginalRecording::getFileName(Channel* ch)
+String OriginalRecording::getFileName(int channelIndex)
 {
     String filename;
+	const DataChannel* ch = getDataChannel(channelIndex);
 
-    filename += ch->nodeId;
+    filename += String(static_cast<int>(ch->getCurrentNodeID()));
     filename += "_";
     if (renameFiles)
-        filename += renamedPrefix + String(ch->mappedIndex + 1);
+        filename += renamedPrefix + String(originalChannelIndexes[channelIndex] + 1);
     else
-        filename += ch->name;
+        filename += ch->getName();
 
     if (experimentNumber > 1)
     {
@@ -277,7 +280,7 @@ String OriginalRecording::getFileName(Channel* ch)
     return filename;
 }
 
-String OriginalRecording::generateHeader(Channel* ch)
+String OriginalRecording::generateHeader(const InfoObjectCommon* ch)
 {
 
     String header = "header.format = 'Open Ephys Data Format'; \n";
@@ -287,7 +290,7 @@ String OriginalRecording::generateHeader(Channel* ch)
     header += String(HEADER_SIZE);
     header += ";\n";
 
-    if (ch == nullptr)
+    if (ch->getInfoObjectType() == InfoObjectCommon::EVENT_CHANNEL)
     {
         header += "header.description = 'each record contains one 64-bit timestamp, one 16-bit sample position, one uint8 event type, one uint8 processor ID, one uint8 event ID, one uint8 event channel, and one uint16 recordingNumber'; \n";
 
@@ -303,7 +306,7 @@ String OriginalRecording::generateHeader(Channel* ch)
     header += "';\n";
 
     header += "header.channel = '";
-    header += (ch != nullptr) ? ch->name : "Events";
+    header += (ch != nullptr) ? ch->getName() : "Events";
     header += "';\n";
 
     if (ch == nullptr)
@@ -317,8 +320,10 @@ String OriginalRecording::generateHeader(Channel* ch)
     }
 
     header += "header.sampleRate = ";
-    // all channels need to have the same sample rate under the current scheme
-    header += String(getChannel(0)->sampleRate);
+	if (ch == nullptr)
+		header += String(getDataChannel(0)->getSampleRate());
+	else
+		header += String(ch->getSampleRate());
     header += ";\n";
     header += "header.blockLength = ";
     header += BLOCK_LENGTH;
@@ -327,7 +332,7 @@ String OriginalRecording::generateHeader(Channel* ch)
     header += AccessClass::getAudioComponent()->getBufferSize();
     header += ";\n";
     header += "header.bitVolts = ";
-    header += (ch != nullptr) ? String(ch->bitVolts) : "1";
+    header += (ch->getInfoObjectType() == InfoObjectCommon::DATA_CHANNEL) ? String(dynamic_cast<const DataChannel*>(ch)->getBitVolts()) : "1";
     header += ";\n";
 
     header = header.paddedRight(' ', HEADER_SIZE);
@@ -338,7 +343,7 @@ String OriginalRecording::generateHeader(Channel* ch)
 
 }
 
-String OriginalRecording::generateSpikeHeader(SpikeRecordInfo* elec)
+String OriginalRecording::generateSpikeHeader(const SpikeChannel* elec)
 {
     String header = "header.format = 'Open Ephys Data Format'; \n";
     header += "header.version = " + String(VERSION_STRING) + "; \n";
@@ -355,15 +360,15 @@ String OriginalRecording::generateSpikeHeader(SpikeRecordInfo* elec)
     header += "';\n";
 
     header += "header.electrode = '";
-    header += elec->name;
+    header += elec->getName();
     header += "';\n";
 
     header += "header.num_channels = ";
-    header += elec->numChannels;
+    header += String(elec->getNumChannels());
     header += ";\n";
 
     header += "header.sampleRate = ";
-    header += String(elec->sampleRate);
+    header += String(elec->getSampleRate());
     header += ";\n";
 
     header = header.paddedRight(' ', HEADER_SIZE);
@@ -373,34 +378,41 @@ String OriginalRecording::generateSpikeHeader(SpikeRecordInfo* elec)
     return header;
 }
 
-void OriginalRecording::writeEvent(int eventType, const MidiMessage& event, int64 timestamp)
+void OriginalRecording::writeEvent(int eventIndex, const MidiMessage& event)
 {
-    if (isWritableEvent(eventType))
-		writeTTLEvent(event, timestamp);
-    if (eventType == GenericProcessor::MESSAGE)
-		writeMessage(event, timestamp);
+	writeTTLEvent(eventIndex, event);
+	if (Event::getEventType(event) == EventChannel::TEXT)
+	{
+		TextEventPtr ev = TextEvent::deserializeFromMessage(event, getEventChannel(eventIndex));
+		if (ev == nullptr) return;
+		writeMessage(ev->getText(), ev->getSourceID(), ev->getChannel(), ev->getTimestamp());
+	}
 }
 
-void OriginalRecording::writeMessage(const MidiMessage& event, int64 timestamp)
+void OriginalRecording::writeTimestampSyncText(uint16 sourceID, uint16 sourceIdx, int64 timestamp, float, String text)
+{
+	writeMessage(text, sourceID, 255, timestamp);
+}
+
+void OriginalRecording::writeMessage(String message, uint16 processorID, uint16 channel, int64 timestamp)
 {
     if (messageFile == nullptr)
         return;
 
-    int msgLength = event.getRawDataSize() - 6;
-    const char* dataptr = (const char*)event.getRawData() + 6;
+    int msgLength = message.getNumBytesAsUTF8();
 
     String timestampText(timestamp);
 
     diskWriteLock.enter();
     fwrite(timestampText.toUTF8(),1,timestampText.length(),messageFile);
     fwrite(" ",1,1,messageFile);
-    fwrite(dataptr,1,msgLength-1,messageFile);
+    fwrite(message.toUTF8(),1,msgLength,messageFile);
     fwrite("\n",1,1,messageFile);
     diskWriteLock.exit();
 
 }
 
-void OriginalRecording::writeTTLEvent(const MidiMessage& event, int64 timestamp)
+void OriginalRecording::writeTTLEvent(int eventIndex, const MidiMessage& event)
 {
     // find file and write samples to disk
     // std::cout << "Received event!" << std::endl;
@@ -408,31 +420,27 @@ void OriginalRecording::writeTTLEvent(const MidiMessage& event, int64 timestamp)
     if (eventFile == nullptr)
         return;
 
-    const uint8* dataptr = event.getRawData();
-
-    //With the new external recording thread, this field has no sense.
+	uint8 data[16];
+	//With the new external recording thread, this field has no sense.
 	int16 samplePos = 0;
+
+	EventPtr ev = Event::deserializeFromMessage(event, getEventChannel(eventIndex));
+	if (!ev) return;
+	*reinterpret_cast<int64*>(data) = ev->getTimestamp();
+	*reinterpret_cast<int16*>(data + 8) = samplePos;
+	*(data + 10) = static_cast<uint8>(ev->getEventType());
+	*(data + 11) = static_cast<uint8>(ev->getSourceID());
+	*(data + 12) = (ev->getEventType() == EventChannel::TTL) ? (dynamic_cast<TTLEvent*>(ev.get())->getState() ? 1 : 0) : 0;
+	*(data + 13) = static_cast<uint8>(ev->getChannel());
+	*reinterpret_cast<uint16*>(data + 14) = static_cast<uint16>(recordingNumber);
+    
 
     diskWriteLock.enter();
 
-    fwrite(&timestamp,					// ptr
-           8,   							// size of each element
-           1, 		  						// count
+    fwrite(&data,					// ptr
+           sizeof(uint8),   							// size of each element
+           16, 		  						// count
            eventFile);   			// ptr to FILE object
-
-    fwrite(&samplePos,							// ptr
-           2,   							// size of each element
-           1, 		  						// count
-           eventFile);   			// ptr to FILE object
-
-    // write 1st four bytes of event (type, nodeId, eventId, eventChannel)
-    fwrite(dataptr, 1, 4, eventFile);
-
-    // write recording number
-    fwrite(&recordingNumber,                     // ptr
-           2,                               // size of each element
-           1,                               // count
-           eventFile);             // ptr to FILE object
 
     diskWriteLock.exit();
 }
@@ -491,7 +499,7 @@ void OriginalRecording::writeContinuousBuffer(const float* data, int nSamples, i
         return;
 
     // scale the data back into the range of int16
-	float scaleFactor = float(0x7fff) * getChannel(getRealChannel(writeChannel))->bitVolts;
+    float scaleFactor =  float(0x7fff) * getDataChannel(getRealChannel(writeChannel))->getBitVolts();
 
     for (int n = 0; n < nSamples; n++)
     {
@@ -618,20 +626,60 @@ void OriginalRecording::closeFiles()
 //     this->timestamp = timestamp;
 // }
 
-void OriginalRecording::writeSpike(int electrodeIndex, const SpikeObject& spike, int64 timestamp)
+void OriginalRecording::writeSpike(int electrodeIndex, const SpikeEvent* spike)
 {
-    uint8_t spikeBuffer[MAX_SPIKE_BUFFER_LEN];
-
     if (spikeFileArray[electrodeIndex] == nullptr)
         return;
 
-    packSpike(&spike, spikeBuffer, MAX_SPIKE_BUFFER_LEN);
+	HeapBlock<char> spikeBuffer;
+	const SpikeChannel* channel = getSpikeChannel(electrodeIndex);
 
-    int totalBytes = spike.nSamples * spike.nChannels * 2 + // account for samples
-                     spike.nChannels * 4 +            // acount for gain
-                     spike.nChannels * 2 +            // account for thresholds
-                     SPIKE_METADATA_SIZE;             // 42, from SpikeObject.h
+	int totalSamples = channel->getTotalSamples() * channel->getNumChannels();
+	int numChannels = channel->getNumChannels();
+	int chanSamples = channel->getTotalSamples();
 
+	int totalBytes = totalSamples * 2 + // account for samples
+		numChannels * 4 +            // acount for gain
+		numChannels * 2 +            // account for thresholds
+		42;             // 42, from SpikeObject.h
+	spikeBuffer.malloc(totalBytes);
+	*(spikeBuffer.getData()) = static_cast<char>(channel->getChannelType());
+	*reinterpret_cast<int64*>(spikeBuffer.getData() + 1) = spike->getTimestamp();
+	*reinterpret_cast<int64*>(spikeBuffer.getData() + 9) = 0; //Legacy unused value
+	*reinterpret_cast<uint16*>(spikeBuffer.getData() + 17) = spike->getSourceID();
+	*reinterpret_cast<uint16*>(spikeBuffer.getData() + 19) = numChannels;
+	*reinterpret_cast<uint16*>(spikeBuffer.getData() + 21) = chanSamples;
+	*reinterpret_cast<uint16*>(spikeBuffer.getData() + 23) = spike->getSortedID();
+	*reinterpret_cast<uint16*>(spikeBuffer.getData() + 25) = electrodeIndex; //Legacy value
+	*reinterpret_cast<uint16*>(spikeBuffer.getData() + 27) = 0; //Legacy unused value
+	zeromem(spikeBuffer.getData() + 29, 3 * sizeof(uint8));
+	zeromem(spikeBuffer.getData() + 32, 2 * sizeof(float));
+	*reinterpret_cast<uint16*>(spikeBuffer.getData() + 40) = channel->getSampleRate();
+
+	int ptrIdx = 0;
+	uint16* dataIntPtr = reinterpret_cast<uint16*>(spikeBuffer.getData() + 42);
+	const float* spikeDataPtr = spike->getDataPointer();
+	for (int i = 0; i < numChannels; i++)
+	{
+		const float bitVolts = channel->getChannelBitVolts(i);
+		for (int j = 0; j < chanSamples; j++)
+		{
+			*(dataIntPtr + ptrIdx) = uint16(*(spikeDataPtr + ptrIdx) / bitVolts + 32768);
+			ptrIdx++;
+		}
+	}
+	ptrIdx = totalSamples * 2 + 42;
+	for (int i = 0; i < numChannels; i++)
+	{
+		//To get the same value as the original version
+		*reinterpret_cast<float*>(spikeBuffer.getData() + ptrIdx) = (int)(1.0f / channel->getChannelBitVolts(i)) * 1000;
+		ptrIdx += sizeof(float);
+	}
+	for (int i = 0; i < numChannels; i++)
+	{
+		*reinterpret_cast<int16*>(spikeBuffer.getData() + ptrIdx) = spike->getThreshold(i);
+		ptrIdx += sizeof(int16);
+	}
 
     diskWriteLock.enter();
 

@@ -30,6 +30,7 @@
 #include "../../UI/ProcessorList.h"
 #include "../../AccessClass.h"
 #include "../../UI/EditorViewport.h"
+#include "../../UI/GraphViewer.h"
 
 #include <math.h>
 
@@ -126,12 +127,15 @@ void GenericEditor::setDisplayName(const String& string)
     repaint();
 }
 
-
 String GenericEditor::getDisplayName()
 {
     return displayName;
 }
 
+int GenericEditor::getChannelDisplayNumber(int chan) const
+{
+	return chan;
+}
 
 void GenericEditor::addParameterEditors(bool useDefaultParameterEditors=true)
 {
@@ -307,9 +311,9 @@ void GenericEditor::stopRecording()
         channelSelector->activateRecButtons();
 }
 
-void GenericEditor::startAcquisition()
+void GenericEditor::editorStartAcquisition()
 {
-
+	startAcquisition();
     //std::cout << "GenericEditor received message to start acquisition." << std::endl;
 
     if (channelSelector != 0)
@@ -327,8 +331,10 @@ void GenericEditor::startAcquisition()
 
 }
 
-void GenericEditor::stopAcquisition()
+void GenericEditor::editorStopAcquisition()
 {
+	stopAcquisition();
+
     if (channelSelector != 0)
         channelSelector->stopAcquisition();
 
@@ -343,6 +349,9 @@ void GenericEditor::stopAcquisition()
     acquisitionIsActive = false;
 
 }
+
+void GenericEditor::startAcquisition() {}
+void GenericEditor::stopAcquisition() {}
 
 void GenericEditor::fadeIn()
 {
@@ -502,6 +511,8 @@ void GenericEditor::update()
 
     int numChannels;
 
+	updateSettings();
+
     if (channelSelector != 0)
     {
         if (!p->isSink())
@@ -514,7 +525,7 @@ void GenericEditor::update()
         for (int i = 0; i < numChannels; i++)
         {
             // std::cout << p->channels[i]->getRecordState() << std::endl;
-            channelSelector->setRecordStatus(i, p->channels[i]->getRecordState());
+            channelSelector->setRecordStatus(i, p->getDataChannel(i)->getRecordState());
         }
     }
 
@@ -529,22 +540,27 @@ void GenericEditor::update()
             drawerButton->setVisible(true);
     }
 
-    updateSettings();
+    
 
     updateVisualizer(); // does nothing unless this method
     // has been implemented
 
 }
 
-Channel* GenericEditor::getChannel(int chan)
+const DataChannel* GenericEditor::getChannel(int chan) const
 {
-    return getProcessor()->channels[chan];
+    return getProcessor()->getDataChannel(chan);
 
 }
 
-Channel* GenericEditor::getEventChannel(int chan)
+const EventChannel* GenericEditor::getEventChannel(int chan) const
 {
-    return getProcessor()->eventChannels[chan];
+    return getProcessor()->getEventChannel(chan);
+}
+
+const SpikeChannel* GenericEditor::getSpikeChannel(int chan) const
+{
+	return getProcessor()->getSpikeChannel(chan);
 }
 
 Array<int> GenericEditor::getActiveChannels()

@@ -195,7 +195,7 @@ void ChannelSelector::setNumChannels(int numChans)
     //Reassign numbers according to the actual channels (useful for channel mapper)
     for (int n = 0; n < numButtons; ++n)
     {
-        int num = ( (GenericEditor*)getParentComponent())->getChannel (n)->nodeIndex;
+        int num = ( (GenericEditor*)getParentComponent())->getChannelDisplayNumber (n);
         static_cast<ChannelSelectorButton*> (parameterButtonsManager.getButtonAt  (n))->setChannel (n + 1, num + 1);
 
         if (isNotSink)
@@ -650,20 +650,23 @@ void ChannelSelector::buttonClicked(Button* button)
             // get audio node, and inform it of the change
             GenericEditor* editor = (GenericEditor*)getParentComponent();
 
-            Channel* ch = editor->getChannel(b->getChannel() - 1);
+            const DataChannel* ch = editor->getChannel(b->getChannel() - 1);
             //int channelNum = editor->getStartChannel() + b->getChannel() - 1;
             bool status = b->getToggleState();
 
-            std::cout << "Requesting audio monitor for channel " << ch->nodeIndex + 1 << std::endl;
+         //   std::cout << "Requesting audio monitor for channel " << ch->nodeIndex + 1 << std::endl;
+            
+            // change parameter directly on editor
+            //     This is another of those ugly things that will go away once the
+            //     probe audio system is implemented, but is needed to maintain compatibility
+            //     between the older recording system and the newer channel objects.
+            const_cast<DataChannel*>(ch)->setMonitored(status);
 
-            if (acquisitionIsActive) // use setParameter to change parameter safely
+            
+            if (acquisitionIsActive) // use setParameter to change audio node's copy of parameter safely, if running
             {
                 AccessClass::getProcessorGraph()->
                 getAudioNode()->setChannelStatus(ch, status);
-            }
-            else     // change parameter directly
-            {
-                ch->isMonitored = status;
             }
         }
         else if (b->getType() == RECORD)
@@ -671,20 +674,31 @@ void ChannelSelector::buttonClicked(Button* button)
             // get record node, and inform it of the change
             GenericEditor* editor = (GenericEditor*)getParentComponent();
 
-            Channel* ch = editor->getChannel(b->getChannel() - 1);
+            const DataChannel* ch = editor->getChannel(b->getChannel() - 1);
             //int channelNum = editor->getStartChannel() + b->getChannel() - 1;
             bool status = b->getToggleState();
 
             if (acquisitionIsActive) // use setParameter to change parameter safely
             {
-                AccessClass::getProcessorGraph()->
+                if ( AccessClass::getProcessorGraph()->
                 getRecordNode()->
-                setChannelStatus(ch, status);
+                setChannelStatus(ch, status) )
+                {
+                    const_cast<DataChannel*>(ch)->setRecordState(status);
+                }
+                
+                // make sure that the button matches the system's actual state, in case
+                // user's interaction was disallowed
+                b->setToggleState(const_cast<DataChannel*>(ch)->getRecordState(), dontSendNotification);
             }
             else     // change parameter directly
             {
                 //std::cout << "Setting record status for channel " << b->getChannel() << std::endl;
-                ch->setRecordState(status);
+
+				//This is another of those ugly things that will go away once the
+				//probe recording system is implemented, but is needed to maintain compatibility
+				//between the older recording system and the newer channel objects.
+                const_cast<DataChannel*>(ch)->setRecordState(status);
             }
 
             AccessClass::getGraphViewer()->repaint();

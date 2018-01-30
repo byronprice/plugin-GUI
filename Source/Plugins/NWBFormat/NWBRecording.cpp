@@ -26,10 +26,9 @@
  
  using namespace NWBRecording;
  
- NWBRecordEngine::NWBRecordEngine() : bufferSize(MAX_BUFFER_SIZE)
+ NWBRecordEngine::NWBRecordEngine() 
  {
-	 scaledBuffer.malloc(MAX_BUFFER_SIZE);
-	 intBuffer.malloc(MAX_BUFFER_SIZE);
+	 
 	 tsBuffer.malloc(MAX_BUFFER_SIZE);
  }
  
@@ -55,28 +54,29 @@
 
 	 datasetIndexes.insertMultiple(0, 0, getNumRecordedChannels());
 	 writeChannelIndexes.insertMultiple(0, 0, getNumRecordedChannels());
-	 
+
 	 //Generate the continuous datasets info array, seeking for different combinations of recorded processor and source processor
 	 int lastId = 0;
 	 for (int proc = 0; proc < recProcs; proc++)
 	 {
-		 const RecordProcessorInfo procInfo = getProcessorInfo(proc);
+		 const RecordProcessorInfo& procInfo = getProcessorInfo(proc);
 		 int recChans = procInfo.recordedChannels.size();
 		 for (int chan = 0; chan < recChans; chan++)
 		 {
 			 int recordedChan = procInfo.recordedChannels[chan];
 			 int realChan = getRealChannel(recordedChan);
-			 Channel* channelInfo = getChannel(realChan);
-			 int sourceId = channelInfo->sourceNodeId;
-			 int nInfoArrays = continuousInfo.size();
+			 const DataChannel* channelInfo = getDataChannel(realChan);
+			 int sourceId = channelInfo->getSourceNodeID();
+			 int sourceSubIdx = channelInfo->getSubProcessorIdx();
+			 int nInfoArrays = continuousChannels.size();
 			 bool found = false;
 			 for (int i = lastId; i < nInfoArrays; i++)
 			 {
-				 if (sourceId == continuousInfo[i].sourceId)
+				 if (sourceId == continuousChannels.getReference(i)[0]->getSourceNodeID() && sourceSubIdx == continuousChannels.getReference(i)[0]->getSubProcessorIdx())
 				 {
 					 //A dataset for the current processor from the current source is already present
-					 writeChannelIndexes.set(recordedChan, continuousInfo[i].nChannels);
-					 continuousInfo.getReference(i).nChannels += 1;
+					 writeChannelIndexes.set(recordedChan, continuousChannels.getReference(i).size());
+					 continuousChannels.getReference(i).add(getDataChannel(realChan));
 					 datasetIndexes.set(recordedChan, i);
 					 found = true;
 					 break;
@@ -84,30 +84,30 @@
 			 }
 			 if (!found) //a new dataset must be created
 			 {
-				 NWBRecordingInfo recInfo;
-				 recInfo.bitVolts = channelInfo->bitVolts;
-				 recInfo.nChannels = 1;
-				 recInfo.processorId = procInfo.processorId;
-				 recInfo.sampleRate = channelInfo->sampleRate;
-				 recInfo.sourceName = "processor_(" + String(sourceId) + ")"; //TODO: add a way to get the actual processor name
-				 recInfo.sourceId = sourceId;
-				 recInfo.spikeElectrodeName = " ";
-				 recInfo.nSamplesPerSpike = 0;
-				 continuousInfo.add(recInfo);
+				 ContinuousGroup newGroup;
+				 newGroup.add(getDataChannel(realChan));
+				 continuousChannels.add(newGroup);
 				 datasetIndexes.set(recordedChan, nInfoArrays);
 				 writeChannelIndexes.set(recordedChan, 0);
 			 }
 
 		 }
-		 lastId = continuousInfo.size();
+		 lastId = continuousChannels.size();
 	 }
+	 int nEvents = getNumRecordedEvents();
+	 for (int i = 0; i < nEvents; i++)
+		 eventChannels.add(getEventChannel(i));
+
+	 int nSpikes = getNumRecordedSpikes();
+	 for (int i = 0; i < nSpikes; i++)
+		 spikeChannels.add(getSpikeChannel(i));
 
 	 //open the file
-	 recordFile->open(getNumRecordedChannels() + continuousInfo.size()); //total channels + timestamp arrays, to create a big enough buffer
+	 recordFile->open(getNumRecordedChannels() + continuousChannels.size() + eventChannels.size() + spikeChannels.size()); //total channels + timestamp arrays, to create a big enough buffer
 
 	 //create the recording
-	 recordFile->startNewRecording(recordingNumber, continuousInfo, spikeInfo);
-	 
+	 recordFile->startNewRecording(recordingNumber, continuousChannels, eventChannels, spikeChannels);
+	
  }
 
  
@@ -117,45 +117,26 @@
 	 recordFile->stopRecording();
 	 recordFile->close();
 	 recordFile = nullptr;
-	 resetChannels(false);
+	 resetChannels();
  }
 
+
+ 
  void NWBRecordEngine::resetChannels()
  {
-	 resetChannels(true);
- }
- 
- void NWBRecordEngine::resetChannels(bool resetSpikes)
- {
-	 //Called at various points, should reset everything.
-
-	 if (resetSpikes) //only clear this at actual reset, not when closing files.
-		spikeInfo.clear();
-	 continuousInfo.clear();
+	 spikeChannels.clear();
+	 eventChannels.clear();
+	 continuousChannels.clear();
 	 datasetIndexes.clear();
 	 writeChannelIndexes.clear();
-	 scaledBuffer.malloc(MAX_BUFFER_SIZE);
-	 intBuffer.malloc(MAX_BUFFER_SIZE);
 	 tsBuffer.malloc(MAX_BUFFER_SIZE);
 	 bufferSize = MAX_BUFFER_SIZE;
  }
  
  void NWBRecordEngine::writeData(int writeChannel, int realChannel, const float* buffer, int size)
  {
-	 if (size > bufferSize) //Shouldn't happen, and if it happens it'll be slow, but better this than crashing. Will be reset on file close and reset.
-	 {
-		 std::cerr << "Write buffer overrun, resizing to" << size << std::endl;
-		 bufferSize = size;
-		 scaledBuffer.malloc(size);
-		 intBuffer.malloc(size);
-		 tsBuffer.malloc(size);
-	 }
 
-	 double multFactor = 1 / (float(0x7fff) * getChannel(realChannel)->bitVolts);
-	 FloatVectorOperations::copyWithMultiply(scaledBuffer.getData(), buffer, multFactor, size);
-	 AudioDataConverters::convertFloatToInt16LE(scaledBuffer.getData(), intBuffer.getData(), size);
-
-	 recordFile->writeData(datasetIndexes[writeChannel], writeChannelIndexes[writeChannel], size, intBuffer.getData());
+	 recordFile->writeData(datasetIndexes[writeChannel], writeChannelIndexes[writeChannel], size, buffer, getDataChannel(realChannel)->getBitVolts());
 
 	 /* All channels in a dataset have the same number of samples and share timestamps. But since this method is called 
 		asynchronously, the timestamps might not be in sync during acquisition, so we chose a channel and write the
@@ -163,7 +144,7 @@
 	 if (writeChannelIndexes[writeChannel] == 0)
 	 {
 		 int64 baseTS = getTimestamp(writeChannel);
-		 double fs = getChannel(realChannel)->sampleRate;
+		 double fs = getDataChannel(realChannel)->getSampleRate();
 		 //Let's hope that the compiler is smart enough to vectorize this. 
 		 for (int i = 0; i < size; i++)
 		 {
@@ -174,43 +155,28 @@
 		 
  }
  
-void NWBRecordEngine::writeEvent(int eventType, const MidiMessage& event, int64 timestamp) 
+void NWBRecordEngine::writeEvent(int eventIndex, const MidiMessage& event) 
 {
-	const uint8* dataptr = event.getRawData();
-	if (eventType == GenericProcessor::TTL)
-	{
-		recordFile->writeTTLEvent(*(dataptr + 3), *(dataptr + 2), *(dataptr + 1), timestamp);
-	}
-	else if (eventType == GenericProcessor::MESSAGE)
-	{
-		recordFile->writeMessage((const char*)(dataptr + 6), timestamp);
-	}
+	const EventChannel* channel = getEventChannel(eventIndex);
+	EventPtr eventStruct = Event::deserializeFromMessage(event, channel);
+
+	recordFile->writeEvent(eventIndex, channel, eventStruct);
 }
 
-void NWBRecordEngine::registerSpikeSource(GenericProcessor* proc)
+void NWBRecordEngine::writeTimestampSyncText(uint16 sourceID, uint16 sourceIdx, int64 timestamp, float sourceSampleRate, String text)
 {
-	currentSpikeProc = proc->nodeId;
-	currentSpikeProcName = proc->getName();
+	recordFile->writeTimestampSyncText(sourceID, timestamp, sourceSampleRate, text);
 }
 
-void NWBRecordEngine::addSpikeElectrode(int index,const  SpikeRecordInfo* elec) 
+void NWBRecordEngine::addSpikeElectrode(int index,const  SpikeChannel* elec) 
 {
-	//Called during chain update by a processor that records spikes. Allows the RecordEngine to gather data about the electrode, which will usually
-	//be used in openfiles to be sent to startNewRecording so the electrode info is stored into the file.
-	NWBRecordingInfo info;
-	info.bitVolts = elec->bitVolts;
-	info.nChannels = elec->numChannels;
-	info.nSamplesPerSpike = MAX_NUMBER_OF_SPIKE_CHANNEL_SAMPLES; //TODO: forward this information properly through the chain at configuration.
-	info.processorId = currentSpikeProc;
-	info.sourceId = currentSpikeProc;
-	info.sampleRate = elec->sampleRate;
-	info.sourceName = currentSpikeProcName + "_(" + String(currentSpikeProc) + ")";
-	info.spikeElectrodeName = elec->name;
-	spikeInfo.add(info);
 }
-void NWBRecordEngine::writeSpike(int electrodeIndex, const SpikeObject& spike, int64 timestamp) 
+
+void NWBRecordEngine::writeSpike(int electrodeIndex, const SpikeEvent* spike) 
 {
-	recordFile->writeSpike(electrodeIndex, spike.data, timestamp);
+	const SpikeChannel* channel = getSpikeChannel(electrodeIndex);
+
+	recordFile->writeSpike(electrodeIndex, channel, spike);
 }
 
 RecordEngineManager* NWBRecordEngine::getEngineManager()

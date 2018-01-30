@@ -37,7 +37,7 @@ namespace BinaryRecordingEngine
 		SequentialBlockFile(int nChannels, int samplesPerBlock);
 		~SequentialBlockFile();
 
-		bool openFile(File file);
+		bool openFile(String filename);
 		bool writeChannel(uint64 startPos, int channel, int16* data, int nSamples);
 
 	private:
@@ -47,8 +47,10 @@ namespace BinaryRecordingEngine
 		const int m_blockSize;
 		OwnedArray<FileBlock> m_memBlocks;
 		Array<int> m_currentBlock;
+		size_t m_lastBlockFill;
 
 		void allocateBlocks(uint64 startIndex, int numSamples);
+
 
 		//Compile-time parameters
 		const int streamBufferSize{ 0 };

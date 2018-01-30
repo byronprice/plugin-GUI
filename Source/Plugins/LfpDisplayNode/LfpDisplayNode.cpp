@@ -25,19 +25,21 @@
 #include "LfpDisplayCanvas.h"
 #include <stdio.h>
 
+using namespace LfpViewer;
+
+
 LfpDisplayNode::LfpDisplayNode()
     : GenericProcessor  ("LFP Viewer")
     , displayGain       (1)
-    , bufferLength      (5.0f)
+    , bufferLength      (20.0f)
     , abstractFifo      (100)
 {
     setProcessorType (PROCESSOR_TYPE_SINK);
 
-    //std::cout << " LFPDisplayNodeConstructor" << std::endl;
     displayBuffer = new AudioSampleBuffer (8, 100);
 
     const int heapSize = 5000;
-    arrayOfOnes.malloc (heapSize);
+    arrayOfOnes = new float[heapSize];
     for (int n = 0; n < heapSize; ++n)
     {
         arrayOfOnes[n] = 1;
@@ -47,6 +49,7 @@ LfpDisplayNode::LfpDisplayNode()
 
 LfpDisplayNode::~LfpDisplayNode()
 {
+    delete[] arrayOfOnes;
 }
 
 
@@ -65,15 +68,15 @@ void LfpDisplayNode::updateSettings()
     eventSourceNodes.clear();
     ttlState.clear();
 
-    for (int i = 0; i < eventChannels.size(); ++i)
-    {
-        if (! eventSourceNodes.contains (eventChannels[i]->sourceNodeId) 
-            && eventChannels[i]->type == EVENT_CHANNEL)
-        {
-            eventSourceNodes.add (eventChannels[i]->sourceNodeId);
+	for (int i = 0; i < eventChannelArray.size(); ++i)
+	{
+		uint32 sourceID = getChannelSourceID(eventChannelArray[i]);
+		if (!eventSourceNodes.contains(sourceID))
+		{
+			eventSourceNodes.add(sourceID);
 
-        }
-    }
+		}
+	}
 
     numEventChannels = eventSourceNodes.size();
 
@@ -82,17 +85,30 @@ void LfpDisplayNode::updateSettings()
     for (int i = 0; i < eventSourceNodes.size(); ++i)
     {
         std::cout << "Adding channel " << getNumInputs() + i << " for event source node " << eventSourceNodes[i] << std::endl;
+
         channelForEventSource[eventSourceNodes[i]] = getNumInputs() + i;
         ttlState[eventSourceNodes[i]] = 0;
-        Channel* eventChan = new Channel (this, getNumInputs() + i, EVENT_CHANNEL);
-        eventChan->sourceNodeId = eventSourceNodes[i];
-        channels.add (eventChan); // add a channel for event data for each source node
     }
 
     displayBufferIndex.clear();
     displayBufferIndex.insertMultiple (0, 0, getNumInputs() + numEventChannels);
+    
+    // update the editor's subprocessor selection display
+    LfpDisplayEditor * ed = (LfpDisplayEditor*)getEditor();
+    ed->updateSubprocessorSelectorOptions();
 }
 
+uint32 LfpDisplayNode::getChannelSourceID(const EventChannel* event) const
+{
+	int metaDataIndex = event->findMetaData(MetaDataDescriptor::UINT16, 3, "source.channel.identifier.full");
+	if (metaDataIndex < 0)
+	{
+		return getProcessorFullId(event->getSourceNodeID(), event->getSubProcessorIdx());
+	}
+	uint16 values[3];
+	event->getMetaDataValue(metaDataIndex)->getValue(static_cast<uint16*>(values));
+	return getProcessorFullId(values[1], values[2]);
+}
 
 bool LfpDisplayNode::resizeBuffer()
 {
@@ -105,6 +121,7 @@ bool LfpDisplayNode::resizeBuffer()
     {
         abstractFifo.setTotalSize (nSamples);
         displayBuffer->setSize (nInputs + numEventChannels, nSamples); // add extra channels for TTLs
+
         return true;
     }
     else
@@ -126,7 +143,6 @@ bool LfpDisplayNode::enable()
     {
         return false;
     }
-
 }
 
 
@@ -141,6 +157,7 @@ bool LfpDisplayNode::disable()
 void LfpDisplayNode::setParameter (int parameterIndex, float newValue)
 {
     editor->updateParameterButtons (parameterIndex);
+    //
     //Sets Parameter in parameters array for processor
     parameters[parameterIndex]->setValue (newValue, currentChannel);
 
@@ -152,31 +169,24 @@ void LfpDisplayNode::setParameter (int parameterIndex, float newValue)
 }
 
 
-void LfpDisplayNode::handleEvent (int eventType, MidiMessage& event, int sampleNum)
+void LfpDisplayNode::handleEvent(const EventChannel* eventInfo, const MidiMessage& event, int samplePosition)
 {
-    if (eventType == TTL)
+    if (Event::getEventType(event) == EventChannel::TTL)
     {
-        const uint8* dataptr = event.getRawData();
-
+        TTLEventPtr ttl = TTLEvent::deserializeFromMessage(event, eventInfo);
+        
         //int eventNodeId = *(dataptr+1);
-        const int eventId           = *(dataptr + 2);
-        const int eventChannel      = *(dataptr + 3);
-        const int eventTime         = event.getTimeStamp();
-        const int eventSourceNodeId = *(dataptr + 5);
-        const int nSamples          = numSamples.at (eventSourceNodeId);
-        const int samplesToFill     = nSamples - eventTime;
-
-        //	std::cout << "Received event from " << eventSourceNode << ", channel "
-        //	          << eventChannel << ", with ID " << eventId << ", copying to "
-         //            << channelForEventSource[eventSourceNode] << std::endl;
-        ////
-        int bufferIndex = (displayBufferIndex[channelForEventSource[eventSourceNodeId]] + eventTime - nSamples) % displayBuffer->getNumSamples();
-
-        bufferIndex = bufferIndex >= 0 
-            ? bufferIndex 
-            : displayBuffer->getNumSamples() + bufferIndex;
-
-
+        const int eventId = ttl->getState() ? 1 : 0;
+        const int eventChannel = ttl->getChannel();
+        const int eventTime = samplePosition;
+        const uint32 eventSourceNodeId = getChannelSourceID(eventInfo);
+        
+        
+        const int chan          = channelForEventSource[eventSourceNodeId];
+        const int index         = (displayBufferIndex[chan] + eventTime) % displayBuffer->getNumSamples();
+        const int samplesLeft   = displayBuffer->getNumSamples() - index;
+        const int nSamples = getNumSourceSamples(eventSourceNodeId) - eventTime;
+        
         if (eventId == 1)
         {
             ttlState[eventSourceNodeId] |= (1L << eventChannel);
@@ -185,40 +195,36 @@ void LfpDisplayNode::handleEvent (int eventType, MidiMessage& event, int sampleN
         {
             ttlState[eventSourceNodeId] &= ~(1L << eventChannel);
         }
-
-        if (samplesToFill + bufferIndex < displayBuffer->getNumSamples())
+        
+        if (nSamples < samplesLeft)
         {
-            //std::cout << bufferIndex << " " << samplesToFill << " " << ttlState[eventSourceNode] << std::endl;
-
-            displayBuffer->copyFrom (channelForEventSource[eventSourceNodeId],   // destChannel
-                                     bufferIndex,                                // destStartSample
-                                     arrayOfOnes,                                // source
-                                     samplesToFill,                              // numSamples
-                                     float (ttlState[eventSourceNodeId]));       // gain
+            displayBuffer->copyFrom (channelForEventSource[eventSourceNodeId],  // destChannel
+                                     index,                               // destStartSample
+                                     arrayOfOnes,                               // source
+                                     nSamples,                             // numSamples
+                                     float (ttlState[eventSourceNodeId]));      // gain
         }
         else
         {
-            const int block2Size = (samplesToFill + bufferIndex) % displayBuffer->getNumSamples();
-            const int block1Size = samplesToFill - block2Size;
-
+            int extraSamples = nSamples - samplesLeft;
+            
             displayBuffer->copyFrom (channelForEventSource[eventSourceNodeId],  // destChannel
-                                     bufferIndex,                               // destStartSample
+                                     index,                               // destStartSample
                                      arrayOfOnes,                               // source
-                                     block1Size,                                // numSamples
+                                     samplesLeft,                                // numSamples
                                      float (ttlState[eventSourceNodeId]));      // gain
-
+            
             displayBuffer->copyFrom (channelForEventSource[eventSourceNodeId],  // destChannel
                                      0,                                         // destStartSample
                                      arrayOfOnes,                               // source
-                                     block2Size,                                // numSamples
+                                     extraSamples,                                // numSamples
                                      float (ttlState[eventSourceNodeId]));      // gain
         }
-        // 	std::cout << "ttlState: " << ttlState << std::endl;
-
-        // std::cout << "Received event from " << eventNodeId <<
-        //              " on channel " << eventChannel <<
-        //             " with value " << eventId <<
-        //             " at timestamp " << event.getTimeStamp() << std::endl;
+        
+        //         std::cout << "Received event from " << eventSourceNodeId
+        //                   << " on channel " << eventChannel
+        //                   << " with value " << eventId
+        //                   << " at timestamp " << event.getTimeStamp() << std::endl;
     }
 }
 
@@ -227,24 +233,23 @@ void LfpDisplayNode::initializeEventChannels()
 {
     for (int i = 0; i < eventSourceNodes.size(); ++i)
     {
-        const int chan        = channelForEventSource[eventSourceNodes[i]];
-        const int index       = displayBufferIndex[chan];
-        const int samplesLeft = displayBuffer->getNumSamples() - index;
-        const int nSamples    = numSamples.at(eventSourceNodes[i]);
-
+        const int chan          = channelForEventSource[eventSourceNodes[i]];
+        const int index         = displayBufferIndex[chan];
+        const int samplesLeft   = displayBuffer->getNumSamples() - index;
+		const int nSamples = getNumSourceSamples(eventSourceNodes[i]);
+        
         if (nSamples < samplesLeft)
         {
+
             displayBuffer->copyFrom (chan,                                      // destChannel
                                      index,                                     // destStartSample
                                      arrayOfOnes,                               // source
                                      nSamples,                                  // numSamples
                                      float (ttlState[eventSourceNodes[i]]));    // gain
-
-            displayBufferIndex.set (chan, index + nSamples);
         }
         else
         {
-            const int extraSamples = nSamples - samplesLeft;
+            int extraSamples = nSamples - samplesLeft;
 
             displayBuffer->copyFrom (chan,                                      // destChannel
                                      index,                                     // destStartSample
@@ -257,57 +262,80 @@ void LfpDisplayNode::initializeEventChannels()
                                      arrayOfOnes,                               // source
                                      extraSamples,                              // numSamples
                                      float (ttlState[eventSourceNodes[i]]));    // gain
-
-            displayBufferIndex.set (chan, extraSamples);
         }
     }
 }
 
+void LfpDisplayNode::finalizeEventChannels()
+{
+    for (int i = 0; i < eventSourceNodes.size(); ++i)
+    {
+        const int chan          = channelForEventSource[eventSourceNodes[i]];
+        const int index         = displayBufferIndex[chan];
+        const int samplesLeft   = displayBuffer->getNumSamples() - index;
+        const int nSamples = getNumSourceSamples(eventSourceNodes[i]);
+        
+        int newIdx = 0;
+        
+        if (nSamples < samplesLeft)
+        {
+            newIdx = index + nSamples;
+        }
+        else
+        {
+            newIdx = nSamples - samplesLeft;
+        }
+        
+        displayBufferIndex.set(chan, newIdx);
+    }
+}
 
-void LfpDisplayNode::process (AudioSampleBuffer& buffer, MidiBuffer& events)
+
+void LfpDisplayNode::process (AudioSampleBuffer& buffer)
 {
     // 1. place any new samples into the displayBuffer
     //std::cout << "Display node sample count: " << nSamples << std::endl; ///buffer.getNumSamples() << std::endl;
 
-    initializeEventChannels();
-
-    checkForEvents (events); // see if we got any TTL events
-
     ScopedLock displayLock (displayMutex);
+    
+    initializeEventChannels();
+    checkForEvents (); // see if we got any TTL events
+    finalizeEventChannels();
+
 
     for (int chan = 0; chan < buffer.getNumChannels(); ++chan)
     {
-         const int samplesLeft = displayBuffer->getNumSamples() - displayBufferIndex[chan];
-         const int nSamples = getNumSamples (chan);
+        const int samplesLeft  = displayBuffer->getNumSamples() - displayBufferIndex[chan];
+        const int nSamples     = getNumSamples (chan);
 
-         if (nSamples < samplesLeft)
-         {
-             displayBuffer->copyFrom (chan,                     // destChannel
-                                      displayBufferIndex[chan], // destStartSample
-                                      buffer,                   // source
-                                      chan,                     // source channel
-                                      0,                        // source start sample
-                                      nSamples);                // numSamples
+        if (nSamples < samplesLeft)
+        {
+            displayBuffer->copyFrom (chan,                      // destChannel
+                                     displayBufferIndex[chan],  // destStartSample
+                                     buffer,                    // source
+                                     chan,                      // source channel
+                                     0,                         // source start sample
+                                     nSamples);                 // numSamples
 
-             displayBufferIndex.set (chan, displayBufferIndex[chan] + nSamples);
-         }
-         else
-         {
-             const int extraSamples = nSamples - samplesLeft;
+            displayBufferIndex.set (chan, displayBufferIndex[chan] + nSamples);
+        }
+        else
+        {
+            const int extraSamples = nSamples - samplesLeft;
 
-             displayBuffer->copyFrom (chan,                     // destChannel
-                                      displayBufferIndex[chan], // destStartSample
-                                      buffer,                   // source
-                                      chan,                     // source channel
-                                      0,                        // source start sample
-                                      samplesLeft);             // numSamples
+            displayBuffer->copyFrom (chan,                      // destChannel
+                                     displayBufferIndex[chan],  // destStartSample
+                                     buffer,                    // source
+                                     chan,                      // source channel
+                                     0,                         // source start sample
+                                     samplesLeft);              // numSamples
 
-             displayBuffer->copyFrom (chan,                     // destChannel
-                                      0,                        // destStartSample
-                                      buffer,                   // source
-                                      chan,                     // source channel
-                                      samplesLeft,              // source start sample
-                                      extraSamples);            // numSamples
+            displayBuffer->copyFrom (chan,                      // destChannel
+                                     0,                         // destStartSample
+                                     buffer,                    // source
+                                     chan,                      // source channel
+                                     samplesLeft,               // source start sample
+                                     extraSamples);             // numSamples
 
             displayBufferIndex.set (chan, extraSamples);
         }

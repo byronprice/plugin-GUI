@@ -66,7 +66,10 @@ public:
     void run() override;
 
     /** Returns the address of the DataBuffer that the input source will fill.*/
-    DataBuffer* getBufferAddress() const;
+    DataBuffer* getBufferAddress(int subProcessor) const;
+
+	/** Called when the chain updates, to add, remove or resize the sourceBuffers' DataBuffers as needed*/
+	virtual void resizeBuffers();
 
     /** Fills the DataBuffer with incoming data. This is the most important
     method for each DataThread.*/
@@ -78,8 +81,6 @@ public:
     /** Experimental method used for testing data sources that can deliver outputs.*/
     virtual void setOutputLow();
 
-    ScopedPointer<DataBuffer> dataBuffer;
-
     /** Returns true if the data source is connected, false otherwise.*/
     virtual bool foundInputSource() = 0;
 
@@ -90,25 +91,22 @@ public:
     virtual bool stopAcquisition() = 0;
 
     /** Returns the number of continuous headstage channels the data source can provide.*/
-    virtual int getNumHeadstageOutputs() const = 0;
+    virtual int getNumDataOutputs(DataChannel::DataChannelTypes type, int subProcessorIdx) const = 0;
 
-    /** Returns the number of continuous aux channels the data source can provide.*/
-    virtual int getNumAuxOutputs() const;
-
-    /** Returns the number of continuous ADC channels the data source can provide.*/
-    virtual int getNumAdcOutputs() const;
+	/** Returns the number of TTL channels that each subprocessor generates*/
+	virtual int getNumTTLOutputs(int subProcessorIdx) const = 0;
 
     /** Returns the sample rate of the data source.*/
-    virtual float getSampleRate() const = 0;
+    virtual float getSampleRate(int subProcessorIdx) const = 0;
 
-	/** Does the data source generate two sample rates? */
-	virtual bool isDualSampleRate();
+	/** Returns the number of virtual subprocessors this source can generate */
+	virtual unsigned int getNumSubProcessors() const;
+
+	/** Called to create extra event channels, apart from the default TTL ones*/
+	virtual void createExtraEvents(Array<EventChannel*>& events);
 
     /** Returns the volts per bit of the data source.*/
-    virtual float getBitVolts (Channel* chan) const = 0;
-
-    /** Returns the number of event channels of the data source.*/
-    virtual int getNumEventChannels() const;
+    virtual float getBitVolts (const DataChannel* chan) const = 0;
 
     /** Notifies if the device is ready for acquisition */
     virtual bool isReady();
@@ -130,22 +128,27 @@ public:
 
     /** Returns a pointer to the data input device, in case other processors
     need to communicate with it.*/
-    virtual void* getDevice();
+  //  virtual void* getDevice();
 
     void getChannelInfo (Array<ChannelCustomInfo>& infoArray) const;
 
     /** Create the DataThread custom editor, if any*/
     virtual GenericEditor* createEditor (SourceNode* sn);
 
+	void createTTLChannels();
+
+	virtual String getChannelUnits(int chanIndex) const;
+
 protected:
     virtual void setDefaultChannelNames();
 
     SourceNode* sn;
 
-    uint64 eventCode;
-    int64 timestamp;
+    Array<uint64> ttlEventWords;
+    Array<int64> timestamps;
 
     Array<ChannelCustomInfo> channelInfo;
+	OwnedArray<DataBuffer> sourceBuffers;
 
 private:
     Time timer;

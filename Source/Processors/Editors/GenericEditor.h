@@ -27,8 +27,8 @@
 #include "../../../JuceLibraryCode/JuceHeader.h"
 #include "../GenericProcessor/GenericProcessor.h"
 #include "../../CoreServices.h"
-#include "../Channel/Channel.h"
 #include "../PluginManager/OpenEphysPlugin.h"
+#include "../Channel/InfoObjects.h"
 
 #include <stdio.h>
 
@@ -38,7 +38,7 @@ class TriangleButton;
 class UtilityButton;
 class ParameterEditor;
 class ChannelSelector;
-class Channel;
+
 
 
 /**
@@ -131,10 +131,16 @@ public:
     void stopRecording();
 
     /** Called just prior to the start of acquisition, to allow the editor to prepare.*/
-    virtual void startAcquisition();
+    void editorStartAcquisition();
+
+	/** Called just prior to the start of acquisition, to allow custom commands. */
+	virtual void startAcquisition();
 
     /** Called after the end of acquisition.*/
-    virtual void stopAcquisition();
+    void editorStopAcquisition();
+
+	/** Called after the end of acquisition, to allow custom commands .*/
+	virtual void stopAcquisition();
 
     /** Returns the name of the editor.*/
     String getName();
@@ -147,6 +153,9 @@ public:
 
     /** Get name on title bar. */
     String getDisplayName();
+
+	/** Returns a custom channel number for the Channel Selector buttons. Useful for channel mappers */
+	virtual int getChannelDisplayNumber(int chan) const;
 
     /** Determines how wide the editor will be drawn. */
     int desiredWidth;
@@ -222,7 +231,7 @@ public:
     void refreshColors();
 
     /** Called when an editor's processor updates its settings (mainly to update channel count).*/
-    virtual void update();
+    void update();
 
     /** Allows other UI elements to use background color of editor. */
     Colour getBackgroundColor();
@@ -246,10 +255,12 @@ public:
     Array<ParameterEditor*> parameterEditors;
 
     /** Returns the Channel object for a given continuous channel number. */
-    Channel* getChannel (int chan);
+    const DataChannel* getChannel (int chan) const;
 
     /** Returns the Channel object for a given event channel number. */
-    Channel* getEventChannel (int chan);
+    const EventChannel* getEventChannel (int chan) const;
+
+	const SpikeChannel* getSpikeChannel(int chan) const;
 
     /** Stores the font used to display the editor's name. */
     Font titleFont;
