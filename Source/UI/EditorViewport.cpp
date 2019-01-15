@@ -383,11 +383,10 @@ void EditorViewport::refreshEditors()
 {
 
     int lastBound = borderSize+tabSize;
-    int totalWidth = 0;
 
     //std::cout << insertionPoint << std::endl;
 
-    bool tooLong;
+    bool pastRightEdge = false;
 
     for (int n = 0; n < signalChainArray.size(); n++)
     {
@@ -397,96 +396,56 @@ void EditorViewport::refreshEditors()
         }
     }
 
-    for (int n = 0; n < editorArray.size(); n++)
+    int rightEdge = getWidth() - tabSize;
+    int numEditors = editorArray.size();
+
+    for (int n = 0; n < numEditors; n++)
     {
 
         //   std::cout << "Refreshing editor number" << n << std::endl;
 
-        int componentWidth = editorArray[n]->desiredWidth;
+        GenericEditor* editor = editorArray[n];
+        int componentWidth = editor->desiredWidth;
 
-        if (lastBound + componentWidth < getWidth() - tabSize && n >= leftmostEditor)
+        pastRightEdge = pastRightEdge || lastBound + componentWidth >= rightEdge;
+
+        if (!pastRightEdge && n >= leftmostEditor)
         {
 
-            if (n == 0)
+            if (n == 0 && !editor->getProcessor()->isSource())
             {
-                if (!editorArray[n]->getEnabledState())
-                {
-                    GenericProcessor* p = (GenericProcessor*) editorArray[n]->getProcessor();
-                    if (!p->isSource())
-                        lastBound += borderSize*10;
-                    // signalChainNeedsSource = true;
-                }
-                else
-                {
-                    //  signalChainNeedsSource = false;
-                }
+                // leave room to drop a source node
+                lastBound += borderSize * 10;
             }
 
             if (somethingIsBeingDraggedOver && n == insertionPoint)
             {
-                if (indexOfMovingComponent > -1)
-                {
-                    if (n != indexOfMovingComponent && n != indexOfMovingComponent+1)
-                    {
-                        if (n == 0)
-                            lastBound += borderSize*3;
-                        else
-                            lastBound += borderSize*2;
-                    }
-                }
-                else
+                if (indexOfMovingComponent == -1 // adding new processor
+                    || (n != indexOfMovingComponent && n != indexOfMovingComponent + 1))
                 {
                     if (n == 0)
                         lastBound += borderSize*3;
                     else
                         lastBound += borderSize*2;
                 }
-
             }
 
-            editorArray[n]->setVisible(true);
+            editor->setVisible(true);
             //   std::cout << "setting visible." << std::endl;
-            editorArray[n]->setBounds(lastBound, borderSize, componentWidth, getHeight()-borderSize*2);
+            editor->setBounds(lastBound, borderSize, componentWidth, getHeight()-borderSize*2);
             lastBound += (componentWidth + borderSize);
-
-            tooLong = false;
-
-            totalWidth = lastBound;
-
         }
         else
         {
-            editorArray[n]->setVisible(false);
-
-            totalWidth += componentWidth + borderSize;
-
+            editor->setVisible(false);
             // std::cout << "setting invisible." << std::endl;
-
-            if (lastBound + componentWidth > getWidth()-tabSize)
-                tooLong = true;
-
         }
     }
 
-    // BUG: variable is used without being initialized
-    if (tooLong && editorArray.size() > 0)
-        rightButton->setActive(true);
-    else
-        rightButton->setActive(false);
-
-    if (leftmostEditor == 0 || editorArray.size() == 0)
-        leftButton->setActive(false);
-    else
-        leftButton->setActive(true);
+    rightButton->setActive(pastRightEdge);
+    leftButton->setActive(leftmostEditor != 0 && editorArray.size() != 0);
 
     // std::cout << totalWidth << " " << getWidth() - tabSize << std::endl;
-
-    // if (totalWidth < getWidth()-tabSize && leftButton->isActive)
-    // {
-    //     leftmostEditor -= 1;
-    //     refreshEditors();
-    // }
-
 }
 
 void EditorViewport::moveSelection(const KeyPress& key)
@@ -1075,15 +1034,15 @@ SignalChainTabButton::SignalChainTabButton() : Button("Name"),
 
 void SignalChainTabButton::clicked()
 {
+    if (getToggleState())
+    {
+        //std::cout << "Button clicked: " << firstEditor->getName() << std::endl;
+        EditorViewport* ev = (EditorViewport*) getParentComponent();
 
-    //std::cout << "Button clicked: " << firstEditor->getName() << std::endl;
-    EditorViewport* ev = (EditorViewport*) getParentComponent();
-
-    scm->updateVisibleEditors(firstEditor, 0, 0, ACTIVATE);
-    ev->leftmostEditor = offset;
-    ev->refreshEditors();
-
-
+        scm->updateVisibleEditors(firstEditor, 0, 0, ACTIVATE);
+        ev->leftmostEditor = offset;
+        ev->refreshEditors();
+    }
 }
 
 void SignalChainTabButton::paintButton(Graphics& g, bool isMouseOver, bool isButtonDown)
@@ -1466,8 +1425,9 @@ const String EditorViewport::loadState(File fileToLoad)
 
     bool sameVersion = false;
 	bool pluginAPI = false;
+	bool rhythmNodePatch = false;
     String versionString;
-	
+
     forEachXmlChildElement(*xml, element)
     {
         if (element->hasTagName("INFO"))
@@ -1477,8 +1437,12 @@ const String EditorViewport::loadState(File fileToLoad)
                 if (element2->hasTagName("VERSION"))
                 {
                     versionString = element2->getAllSubText();
-                    // float majorVersion = versionString.upToFirstOccurrenceOf(".", false, true).getIntValue();
-                    //             float minorVersion = versionString.fromFirstOccurrenceOf(".", false, true).getFloatValue();
+					StringArray tokens;
+					tokens.addTokens(versionString, ".", String::empty);
+
+					//Patch to correctly load saved chains from before 0.4.4
+					if (tokens[0].getIntValue() == 0 && tokens[1].getIntValue() == 4 && tokens[2].getIntValue() < 4)
+						rhythmNodePatch = true;
 
                     if (versionString.equalsIgnoreCase(JUCEApplication::getInstance()->getApplicationVersion()))
                         sameVersion = true;
@@ -1570,6 +1534,22 @@ const String EditorViewport::loadState(File fileToLoad)
 					procDesc.add(processor->getIntAttribute("libraryVersion"));
 					procDesc.add(processor->getBoolAttribute("isSource"));
 					procDesc.add(processor->getBoolAttribute("isSink"));
+
+					if (rhythmNodePatch) //old version, when rhythm was a plugin
+					{
+						if (int(procDesc[2]) == -1) //if builtin
+						{
+							if (int(procDesc[3]) == 0) //Rhythm node
+							{
+								procDesc.set(2, 4); //DataThread
+								procDesc.set(3, 1); //index
+								procDesc.set(4, "Rhythm FPGA"); //libraryName
+							}
+							else
+								procDesc.set(3, int(procDesc[3]) - 1); //arrange old nodes to its current index
+						}
+					}
+
                     SourceDetails sd = SourceDetails(procDesc,
                                                      0,
                                                      Point<int>(0,0));
@@ -1663,7 +1643,6 @@ const String EditorViewport::loadState(File fileToLoad)
     refreshEditors();
 
     AccessClass::getProcessorGraph()->restoreParameters();
-
 
     String error = "Opened ";
     error += currentFile.getFileName();

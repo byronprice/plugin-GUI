@@ -405,8 +405,10 @@ void GenericProcessor::updateChannelIndexes(bool updateNodeID)
 	dataChannelMap.clear();
 	eventChannelMap.clear();
 	spikeChannelMap.clear();
-
-	for (int i = 0; i < dataChannelArray.size(); i++)
+	unsigned int nChans;
+	
+	nChans = dataChannelArray.size();
+	for (int i = 0; i < nChans; i++)
 	{
 		DataChannel* channel = dataChannelArray[i];
 		if (updateNodeID)
@@ -419,7 +421,8 @@ void GenericProcessor::updateChannelIndexes(bool updateNodeID)
 		uint32 sourceID = getProcessorFullId(channel->getSourceNodeID(), channel->getSubProcessorIdx());
 		dataChannelMap[sourceID][channel->getSourceIndex()] = i;
 	}
-	for (int i = 0; i < eventChannelArray.size(); i++)
+	nChans = eventChannelArray.size();
+	for (int i = 0; i < nChans; i++)
 	{
 		EventChannel* channel = eventChannelArray[i];
 		if (updateNodeID)
@@ -432,7 +435,8 @@ void GenericProcessor::updateChannelIndexes(bool updateNodeID)
 		uint32 sourceID = getProcessorFullId(channel->getSourceNodeID(), channel->getSubProcessorIdx());
 		eventChannelMap[sourceID][channel->getSourceIndex()] = i;
 	}
-	for (int i = 0; i < spikeChannelArray.size(); i++)
+	nChans = spikeChannelArray.size();
+	for (int i = 0; i < nChans; i++)
 	{
 		SpikeChannel* channel = spikeChannelArray[i];
 		if (updateNodeID)
@@ -600,7 +604,7 @@ uint32 GenericProcessor::getNumSamples (int channelNum) const
 
 
 /** Used to get the timestamp for a given buffer, for a given source node. */
-uint64 GenericProcessor::getTimestamp (int channelNum) const
+juce::uint64 GenericProcessor::getTimestamp (int channelNum) const
 {
     int sourceNodeId = 0;
 	int subProcessorIdx = 0;
@@ -649,14 +653,14 @@ uint32 GenericProcessor::getNumSourceSamples(uint32 fullSourceID) const
 	return nSamples;
 }
 
-uint64 GenericProcessor::getSourceTimestamp(uint16 processorID, uint16 subProcessorIdx) const
+juce::uint64 GenericProcessor::getSourceTimestamp(uint16 processorID, uint16 subProcessorIdx) const
 {
 	return getSourceTimestamp(getProcessorFullId(processorID, subProcessorIdx));
 }
 
-uint64 GenericProcessor::getSourceTimestamp(uint32 fullSourceID) const
+juce::uint64 GenericProcessor::getSourceTimestamp(uint32 fullSourceID) const
 {
-	uint64 ts;
+	juce::uint64 ts;
 	try
 	{
 		ts = timestamps.at(fullSourceID);
@@ -670,7 +674,7 @@ uint64 GenericProcessor::getSourceTimestamp(uint32 fullSourceID) const
 
 
 /** Used to set the timestamp for a given buffer, for a given channel. */
-void GenericProcessor::setTimestampAndSamples(uint64 timestamp, uint32 nSamples, int subProcessorIdx)
+void GenericProcessor::setTimestampAndSamples(juce::uint64 timestamp, uint32 nSamples, int subProcessorIdx)
 {
 
 	MidiBuffer& eventBuffer = *m_currentMidiBuffer;
@@ -688,7 +692,7 @@ void GenericProcessor::setTimestampAndSamples(uint64 timestamp, uint32 nSamples,
     timestamps[sourceID] = timestamp;
 	numSamples[sourceID] = nSamples;
 
-    if (m_needsToSendTimestampMessages[subProcessorIdx])
+    if (m_needsToSendTimestampMessages[subProcessorIdx] && nSamples > 0)
     {
 		HeapBlock<char> data;
 		size_t dataSize = SystemEvent::fillTimestampSyncTextData(data, this, subProcessorIdx, timestamp, false);
@@ -732,7 +736,7 @@ int GenericProcessor::processEventBuffer()
 				uint16 sourceSubProcessorIdx = *reinterpret_cast<const uint16*>(dataptr + 4);
 				uint32 sourceID = getProcessorFullId(sourceNodeID, sourceSubProcessorIdx);
 
-				uint64 timestamp = *reinterpret_cast<const uint64*>(dataptr + 8);
+				juce::uint64 timestamp = *reinterpret_cast<const juce::uint64*>(dataptr + 8);
 				uint32 nSamples = *reinterpret_cast<const uint32*>(dataptr + 16);
 				numSamples[sourceID] = nSamples;
 				timestamps[sourceID] = timestamp;
@@ -809,7 +813,7 @@ void GenericProcessor::addEvent(const EventChannel* channel, const Event* event,
 	size_t size = channel->getDataSize() + channel->getTotalEventMetaDataSize() + EVENT_BASE_SIZE;
 	HeapBlock<char> buffer(size);
 	event->serialize(buffer, size);
-	m_currentMidiBuffer->addEvent(buffer, size, sampleNum);
+	m_currentMidiBuffer->addEvent(buffer, size, sampleNum >= 0 ? sampleNum : 0);
 }
 
 void GenericProcessor::addSpike(int channelIndex, const SpikeEvent* event, int sampleNum)
@@ -822,7 +826,7 @@ void GenericProcessor::addSpike(const SpikeChannel* channel, const SpikeEvent* e
 	size_t size = channel->getDataSize() + channel->getTotalEventMetaDataSize() + SPIKE_BASE_SIZE + channel->getNumChannels()*sizeof(float);
 	HeapBlock<char> buffer(size);
 	event->serialize(buffer, size);
-	m_currentMidiBuffer->addEvent(buffer, size, sampleNum);
+	m_currentMidiBuffer->addEvent(buffer, size, sampleNum >= 0 ? sampleNum : 0);
 }
 
 
