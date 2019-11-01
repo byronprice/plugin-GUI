@@ -46,7 +46,7 @@ public:
 
     /** Initializes the MainWindow, creates the AudioComponent, ProcessorGraph,
         and UIComponent, and sets the window boundaries. */
-    MainWindow();
+    MainWindow(const File& fileToLoad = File());
 
     /** Destroys the AudioComponent, ProcessorGraph, and UIComponent, and saves the window boundaries. */
     ~MainWindow();
@@ -61,6 +61,8 @@ public:
 
     /** Determines whether the last used configuration reloads upon startup. */
     bool shouldReloadOnStartup;
+
+	void shutDownGUI();
 
 private:
 

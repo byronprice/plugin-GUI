@@ -64,9 +64,13 @@ no hardware timestamping is present*/
 PLUGIN_API juce::int64 getGlobalTimestamp();
 
 /** Gets the sample rate selected on the MessageCenter interface
-Defaults to the dample rate of the first hardware source or 
+Defaults to the dsmple rate of the first hardware source or 
 the software high resolution timer if no hardware source is present*/
 PLUGIN_API float getGlobalSampleRate();
+
+/** Gets the full id of the node generating global timestamps.
+Returns 0 if timestamps are provided by the software high resolution timer */
+PLUGIN_API uint32 getGlobalTimestampSourceFullId();
 
 /** Gets the software timestamp based on a high resolution timer aligned to the start of each processing block */
 PLUGIN_API juce::int64 getSoftwareTimestamp();
@@ -109,6 +113,7 @@ PLUGIN_API int getExperimentNumber();
 PLUGIN_API void writeSpike(const SpikeEvent* spike, const SpikeChannel* chan);
 PLUGIN_API void registerSpikeSource(GenericProcessor* processor);
 PLUGIN_API int addSpikeElectrode(const SpikeChannel* elec);
+
 };
 
 PLUGIN_API const char* getApplicationResource(const char* name, int& size);

@@ -38,157 +38,162 @@ using namespace AccessClass;
 
 namespace CoreServices
 {
-void updateSignalChain(GenericEditor* source)
-{
-    getEditorViewport()->makeEditorVisible(source, false, true);
-}
+	void updateSignalChain(GenericEditor* source)
+	{
+		getEditorViewport()->makeEditorVisible(source, false, true);
+	}
 
-bool getRecordingStatus()
-{
-    return getControlPanel()->recordButton->getToggleState();
-}
+	bool getRecordingStatus()
+	{
+		return getControlPanel()->recordButton->getToggleState();
+	}
 
-void setRecordingStatus(bool enable)
-{
-    getControlPanel()->setRecordState(enable);
-}
+	void setRecordingStatus(bool enable)
+	{
+		getControlPanel()->setRecordState(enable);
+	}
 
-bool getAcquisitionStatus()
-{
-	return getControlPanel()->getAcquisitionState();
-}
+	bool getAcquisitionStatus()
+	{
+		return getControlPanel()->getAcquisitionState();
+	}
 
-void setAcquisitionStatus(bool enable)
-{
-    getControlPanel()->setAcquisitionState(enable);
-}
+	void setAcquisitionStatus(bool enable)
+	{
+		getControlPanel()->setAcquisitionState(enable);
+	}
 
-void sendStatusMessage(const String& text)
-{
-    getBroadcaster()->sendActionMessage(text);
-}
+	void sendStatusMessage(const String& text)
+	{
+		getBroadcaster()->sendActionMessage(text);
+	}
 
-void sendStatusMessage(const char* text)
-{
-    getBroadcaster()->sendActionMessage(text);
-}
+	void sendStatusMessage(const char* text)
+	{
+		getBroadcaster()->sendActionMessage(text);
+	}
 
-void highlightEditor(GenericEditor* ed)
-{
-    getEditorViewport()->makeEditorVisible(ed);
-}
+	void highlightEditor(GenericEditor* ed)
+	{
+		getEditorViewport()->makeEditorVisible(ed);
+	}
 
-juce::int64 getGlobalTimestamp()
-{
-	return getProcessorGraph()->getGlobalTimestamp(false);
-}
+	juce::int64 getGlobalTimestamp()
+	{
+		return getProcessorGraph()->getGlobalTimestamp(false);
+	}
 
-juce::int64 getSoftwareTimestamp()
-{
-	return getProcessorGraph()->getGlobalTimestamp(true);
-}
+	juce::uint32 getGlobalTimestampSourceFullId()
+	{
+		return getProcessorGraph()->getGlobalTimestampSourceFullId();
+	}
 
-float getGlobalSampleRate()
-{
-	return getProcessorGraph()->getGlobalSampleRate(false);
-}
+	juce::int64 getSoftwareTimestamp()
+	{
+		return getProcessorGraph()->getGlobalTimestamp(true);
+	}
 
-float getSoftwareSampleRate()
-{
-	return getProcessorGraph()->getGlobalSampleRate(true);
-}
+	float getGlobalSampleRate()
+	{
+		return getProcessorGraph()->getGlobalSampleRate(false);
+	}
 
-void setRecordingDirectory(String dir)
-{
-    getControlPanel()->setRecordingDirectory(dir);
-}
+	float getSoftwareSampleRate()
+	{
+		return getProcessorGraph()->getGlobalSampleRate(true);
+	}
 
-void createNewRecordingDir()
-{
-   getControlPanel()->labelTextChanged(NULL);
-}
+	void setRecordingDirectory(String dir)
+	{
+		getControlPanel()->setRecordingDirectory(dir);
+	}
 
-void setPrependTextToRecordingDir(String text)
-{
-    getControlPanel()->setPrependText(text);
-}
+	void createNewRecordingDir()
+	{
+		getControlPanel()->labelTextChanged(NULL);
+	}
 
-void setAppendTextToRecordingDir(String text)
-{
-    getControlPanel()->setAppendText(text);
-}
+	void setPrependTextToRecordingDir(String text)
+	{
+		getControlPanel()->setPrependText(text);
+	}
 
-String getSelectedRecordEngineId()
-{
-	return getControlPanel()->getSelectedRecordEngineId();
-}
+	void setAppendTextToRecordingDir(String text)
+	{
+		getControlPanel()->setAppendText(text);
+	}
 
-bool setSelectedRecordEngineId(String id)
-{
-	return getControlPanel()->setSelectedRecordEngineId(id);
-}
+	String getSelectedRecordEngineId()
+	{
+		return getControlPanel()->getSelectedRecordEngineId();
+	}
 
-namespace RecordNode
-{
-void createNewrecordingDir()
-{
-    getProcessorGraph()->getRecordNode()->createNewDirectory();
-}
+	bool setSelectedRecordEngineId(String id)
+	{
+		return getControlPanel()->setSelectedRecordEngineId(id);
+	}
 
-File getRecordingPath()
-{
-    return getProcessorGraph()->getRecordNode()->getDataDirectory();
-}
+	namespace RecordNode
+	{
+		void createNewrecordingDir()
+		{
+			getProcessorGraph()->getRecordNode()->createNewDirectory();
+		}
 
-int getRecordingNumber()
-{
-	return getProcessorGraph()->getRecordNode()->getRecordingNumber();
-}
+		File getRecordingPath()
+		{
+			return getProcessorGraph()->getRecordNode()->getDataDirectory();
+		}
 
-int getExperimentNumber()
-{
-	return getProcessorGraph()->getRecordNode()->getExperimentNumber();
-}
+		int getRecordingNumber()
+		{
+			return getProcessorGraph()->getRecordNode()->getRecordingNumber();
+		}
 
-void writeSpike(const SpikeEvent* spike, const SpikeChannel* chan)
-{
-    getProcessorGraph()->getRecordNode()->writeSpike(spike, chan);
-}
+		int getExperimentNumber()
+		{
+			return getProcessorGraph()->getRecordNode()->getExperimentNumber();
+		}
 
-void registerSpikeSource(GenericProcessor* processor)
-{
-    getProcessorGraph()->getRecordNode()->registerSpikeSource(processor);
-}
+		void writeSpike(const SpikeEvent* spike, const SpikeChannel* chan)
+		{
+			getProcessorGraph()->getRecordNode()->writeSpike(spike, chan);
+		}
 
-int addSpikeElectrode(const SpikeChannel* elec)
-{
-    return getProcessorGraph()->getRecordNode()->addSpikeElectrode(elec);
-}
-};
+		void registerSpikeSource(GenericProcessor* processor)
+		{
+			getProcessorGraph()->getRecordNode()->registerSpikeSource(processor);
+		}
 
-const char* getApplicationResource(const char* name, int& size)
-{
-	return BinaryData::getNamedResource(name, size);
-}
-    
-File getDefaultUserSaveDirectory()
-{
+		int addSpikeElectrode(const SpikeChannel* elec)
+		{
+			return getProcessorGraph()->getRecordNode()->addSpikeElectrode(elec);
+		}
+
+	};
+
+	const char* getApplicationResource(const char* name, int& size)
+	{
+		return BinaryData::getNamedResource(name, size);
+	}
+
+	File getDefaultUserSaveDirectory()
+	{
 #if defined(__APPLE__)
-    File dir = File::getSpecialLocation(File::userDocumentsDirectory).getChildFile("open-ephys");
-    if (!dir.isDirectory()) {
-        dir.createDirectory();
-    }
-    return std::move(dir);
+		File dir = File::getSpecialLocation(File::userDocumentsDirectory).getChildFile("open-ephys");
+		if (!dir.isDirectory()) {
+			dir.createDirectory();
+		}
+		return std::move(dir);
 #else
-    return File::getCurrentWorkingDirectory();
+		return File::getCurrentWorkingDirectory();
 #endif
-}
+	}
 
-String getGUIVersion()
-{
+	String getGUIVersion()
+	{
 #define XSTR_DEF(s) #s
 #define STR_DEF(s) XSTR_DEF(s)
-	return STR_DEF(JUCE_APP_VERSION);
-}
-
+		return STR_DEF(JUCE_APP_VERSION);
+	}
 };
