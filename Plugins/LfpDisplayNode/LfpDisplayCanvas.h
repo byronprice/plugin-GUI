@@ -182,7 +182,7 @@ private:
     //float waves[MAX_N_CHAN][MAX_N_SAMP*2]; // we need an x and y point for each sample
 
     LfpDisplayNode* processor;
-    AudioSampleBuffer* displayBuffer; // sample wise data buffer for display
+    std::shared_ptr<AudioSampleBuffer> displayBuffer; // sample wise data buffer for display
     ScopedPointer<AudioSampleBuffer> screenBuffer; // subsampled buffer- one int per pixel
 
     //'define 3 buffers for min mean and max for better plotting of spikes
@@ -619,7 +619,7 @@ public:
         float timescaleStartScale;        // a cache for the timescale size during drag events
         float zoomPivotRatioX;          // a cache for calculating the anchor point when adjusting viewport
         float zoomPivotRatioY;
-        Point<int> zoomPivotViewportOffset;                     // similar to above, but pixel-wise offset
+        juce::Point<int> zoomPivotViewportOffset;                     // similar to above, but pixel-wise offset
         bool unpauseOnScrollEnd;
     };
     
