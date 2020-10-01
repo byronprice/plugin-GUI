@@ -3,11 +3,14 @@ name: Windows
 on:
   push:
     paths:
-    - "CMakeLists.txt"
-    - "Source"
-    - "JuceLibraryCode"
-    - "PluginGenerator"
-    - "Plugins"
+    - '.github/workflows/**'
+    - 'JuceLibraryCode/**'
+    - 'PluginGenerator/**'
+    - 'Plugins/**'
+    - 'Resources/**'
+    - 'Source/**'
+    - 'CMakeLists.txt'
+    - 'HelperFunctions.cmake'
 
 jobs:
 
@@ -37,30 +40,23 @@ jobs:
         bintrayUser: ${{ secrets.bintrayUsername }}
         bintrayApiKey: ${{ secrets.bintrayApiKey }}
       run: |
-        git clone --branch windows https://github.com/open-ephys-gui-binaries/open-ephys.git
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/neuropixels-3a/neuropixels-3a-windows_0.1.0-API6.zip --output neuropixels-3a.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/neuropixels-pxi/neuropixels-pxi-windows_0.1.0-API6.zip --output neuropixels-pxi.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/nidaq-plugin/nidaq-plugin-windows_0.1.0-API6.zip --output nidaq-plugin.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/probe-viewer/probe-viewer-windows_0.1.0-API6.zip --output probe-viewer.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/StreamMuxer/StreamMuxer-windows_0.1.0-API6.zip --output stream-muxer.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/ZMQPlugins/ZMQPlugins-windows_0.1.0-API6.zip --output zmq-plugins.zip
-        powershell Expand-Archive neuropixels-3a.zip -DestinationPath Build/Release
-        powershell Expand-Archive neuropixels-pxi.zip -DestinationPath Build/Release
-        powershell Expand-Archive nidaq-plugin.zip -DestinationPath Build/Release
-        powershell Expand-Archive stream-muxer.zip -DestinationPath Build/Release
-        powershell Expand-Archive probe-viewer.zip -DestinationPath Build/Release
-        powershell Expand-Archive zmq-plugins.zip -DestinationPath Build/Release
-        cp -r open-ephys/shared Build/Release
-        cp -r open-ephys/plugins/KWIKFormat.dll Build/Release/plugins
-        cp -r open-ephys/plugins/NWBFormat.dll Build/Release/plugins
         cd Build
-        mv Release open-ephys
+        cp -r Release open-ephys
+        cp -r ../Resources/DLLs/FrontPanelUSB-DriverOnly-4.5.5.exe open-ephys
+        cp -r ../Resources/DataFiles open-ephys
+        cp -r ../Licenses open-ephys
         gui_ver=$(git describe --tags $(git rev-list --tags --max-count=1))
         zipfile=open-ephys-${gui_ver}-windows-beta.zip
         powershell Compress-Archive -Path "open-ephys" -DestinationPath ${zipfile}
         user_info="$bintrayUser:$bintrayApiKey"
         curl -T $zipfile --user $user_info https://api.bintray.com/content/open-ephys-gui/Test/Test-windows/$gui_ver/$zipfile
         curl -X POST --user $user_info https://api.bintray.com/content/open-ephys-gui/Test/Test-windows/$gui_ver/publish
+        cd ../Resources/Installers/Windows
+        iscc "windows_installer_script.iss"
+        installer=Install-Open-Ephys-GUI-${gui_ver}-beta.exe
+        mv Open-Ephys_Installer.exe $installer
+        curl -T $installer --user $user_info https://api.bintray.com/content/open-ephys-gui/Test-Installer/Test-Installer-windows/$gui_ver/$installer
+        curl -X POST --user $user_info https://api.bintray.com/content/open-ephys-gui/Test-Installer/Test-Installer-windows/$gui_ver/publish
       shell: bash
     - name: deploy_release
       if: github.ref == 'refs/heads/master'
@@ -68,28 +64,21 @@ jobs:
         bintrayUser: ${{ secrets.bintrayUsername }}
         bintrayApiKey: ${{ secrets.bintrayApiKey }}
       run: |
-        git clone --branch windows https://github.com/open-ephys-gui-binaries/open-ephys.git
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/neuropixels-3a/neuropixels-3a-windows_0.1.0-API6.zip --output neuropixels-3a.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/neuropixels-pxi/neuropixels-pxi-windows_0.1.0-API6.zip --output neuropixels-pxi.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/nidaq-plugin/nidaq-plugin-windows_0.1.0-API6.zip --output nidaq-plugin.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/probe-viewer/probe-viewer-windows_0.1.0-API6.zip --output probe-viewer.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/StreamMuxer/StreamMuxer-windows_0.1.0-API6.zip --output stream-muxer.zip
-        curl -L https://dl.bintray.com/open-ephys-gui-plugins/ZMQPlugins/ZMQPlugins-windows_0.1.0-API6.zip --output zmq-plugins.zip
-        powershell Expand-Archive neuropixels-3a.zip -DestinationPath Build/Release
-        powershell Expand-Archive neuropixels-pxi.zip -DestinationPath Build/Release
-        powershell Expand-Archive nidaq-plugin.zip -DestinationPath Build/Release
-        powershell Expand-Archive stream-muxer.zip -DestinationPath Build/Release
-        powershell Expand-Archive probe-viewer.zip -DestinationPath Build/Release
-        powershell Expand-Archive zmq-plugins.zip -DestinationPath Build/Release
-        cp -r open-ephys/shared Build/Release
-        cp -r open-ephys/plugins/KWIKFormat.dll Build/Release/plugins
-        cp -r open-ephys/plugins/NWBFormat.dll Build/Release/plugins
         cd Build
-        mv Release open-ephys
+        cp -r Release open-ephys
+        cp -r ../Resources/DLLs/FrontPanelUSB-DriverOnly-4.5.5.exe open-ephys
+        cp -r ../Resources/DataFiles open-ephys
+        cp -r ../Licenses open-ephys
         gui_ver=$(git describe --tags $(git rev-list --tags --max-count=1))
-        zipfile=open-ephys-${gui_ver}-windows-beta.zip
+        zipfile=open-ephys-${gui_ver}-windows.zip
         powershell Compress-Archive -Path "open-ephys" -DestinationPath ${zipfile}
         user_info="$bintrayUser:$bintrayApiKey"
-        curl -T $zipfile --user $user_info https://api.bintray.com/content/open-ephys-gui/Test/Test-windows/$gui_ver/$zipfile
-        curl -X POST --user $user_info https://api.bintray.com/content/open-ephys-gui/Test/Test-windows/$gui_ver/publish
+        curl -T $zipfile --user $user_info https://api.bintray.com/content/open-ephys-gui/Release/Release-windows/$gui_ver/$zipfile
+        curl -X POST --user $user_info https://api.bintray.com/content/open-ephys-gui/Release/Release-windows/$gui_ver/publish
+        cd ../Resources/Installers/Windows
+        iscc "windows_installer_script.iss"
+        installer=Install-Open-Ephys-GUI-${gui_ver}.exe
+        mv Open-Ephys_Installer.exe $installer
+        curl -T $installer --user $user_info https://api.bintray.com/content/open-ephys-gui/Release-Installer/Release-Installer-windows/$gui_ver/$installer
+        curl -X POST --user $user_info https://api.bintray.com/content/open-ephys-gui/Release-Installer/Release-Installer-windows/$gui_ver/publish
       shell: bash
